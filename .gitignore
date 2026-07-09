@@ -1,0 +1,207 @@
+# =============================================================================
+# Wi-Netra Health — monorepo .gitignore
+# Layers: firmware/ (ESP32-S3, ESP-IDF/PlatformIO) · mobile/ (Flutter) ·
+#         admin/ (React/Node) · cloud/ (Firebase) · validation/ (Python)
+#
+# Goal: this repo must NEVER contain committed docs, secrets, dependencies,
+# build output, or raw datasets. When in doubt, exclude.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 1. DOCUMENTS — never tracked, anywhere, no exceptions (incl. README.md).
+#    Documentation lives outside version control for this project by design.
+# -----------------------------------------------------------------------------
+*.md
+*.pdf
+*.doc
+*.docx
+
+# -----------------------------------------------------------------------------
+# 2. ENV & SECRETS — never tracked. No templates/examples either; the team
+#    shares real files out-of-band. "No secrets in the repo" is absolute.
+# -----------------------------------------------------------------------------
+.env
+.env.*
+*.env
+.env.example
+.env.sample
+
+# Firebase client config (contains API keys — treat as secret, no template):
+google-services.json
+GoogleService-Info.plist
+
+# Firebase / GCP service-account & admin credentials (server-side secrets):
+*serviceAccount*.json
+*service-account*.json
+*firebase-adminsdk*.json
+.firebase-credentials.json
+
+# Generic key / token / credential material, any extension:
+*credentials*
+*secret*
+*.pem
+*.key
+*.p12
+*.pfx
+*.p8
+*.keystore
+*.jks
+*.der
+*token*
+*.crt
+
+# -----------------------------------------------------------------------------
+# 3a. AGENTIC AI / ASSISTANT TOOLING — local, machine/user-specific, never tracked
+# -----------------------------------------------------------------------------
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+.claude.json
+.cursor/
+.cursorrules
+.cursorignore
+.aider*
+.aiderignore
+.github/copilot-instructions.md
+.continue/
+.windsurf/
+.windsurfrules
+.codeium/
+.roo/
+.cline/
+.clinerules
+.gemini/
+GEMINI.md
+.qodo/
+.tabnine/
+.sourcegraph/
+.mcp.json
+.serena/
+
+# -----------------------------------------------------------------------------
+# 3. EDITOR / IDE / OS cruft
+# -----------------------------------------------------------------------------
+.vscode/
+.idea/
+*.iml
+*.suo
+*.user
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# -----------------------------------------------------------------------------
+# 4. NODE / REACT (admin/ and any JS tooling)
+# -----------------------------------------------------------------------------
+node_modules/
+dist/
+.cache/
+.parcel-cache/
+.vite/
+coverage/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# -----------------------------------------------------------------------------
+# 5. FLUTTER / DART (mobile/)
+# -----------------------------------------------------------------------------
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+# iOS
+ios/Pods/
+ios/Flutter/Flutter.podspec
+ios/Flutter/Flutter.framework
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+ios/.symlinks/
+# Android
+.gradle/
+android/local.properties
+android/key.properties
+android/app/debug/
+android/app/profile/
+android/app/release/
+# Build artifacts
+*.apk
+*.aab
+*.ipa
+
+# -----------------------------------------------------------------------------
+# 6. ESP-IDF (firmware/)
+# -----------------------------------------------------------------------------
+build/
+sdkconfig
+sdkconfig.old
+managed_components/
+dependencies.lock
+
+# -----------------------------------------------------------------------------
+# 7. PlatformIO (firmware/, if used alongside/instead of ESP-IDF)
+# -----------------------------------------------------------------------------
+.pio/
+.pioenvs/
+.piolibdeps/
+.clang_complete
+.gcc-flags.json
+
+# -----------------------------------------------------------------------------
+# 8. PYTHON (validation/ scripts)
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+
+# -----------------------------------------------------------------------------
+# 9. LOCAL / MACHINE-SPECIFIC overrides (personal, not project config)
+# -----------------------------------------------------------------------------
+*.local
+*.local.*
+.firebase/
+firebase-debug.log
+ui-debug.log
+database-debug.log
+
+# -----------------------------------------------------------------------------
+# 10. DATA / LARGE FILES — raw CSI captures & datasets are NOT committed.
+#     Reference them by path/instructions instead. (validation/data is kept as
+#     an empty tracked folder via its .gitkeep, but its contents are ignored.)
+# -----------------------------------------------------------------------------
+validation/data/*
+*.csi
+*.pcap
+*.raw
+*.npy
+*.npz
+*.h5
+*.hdf5
+*.mat
+*.parquet
+
+# =============================================================================
+# EXPLICIT KEEPS — re-include required project config & folder placeholders
+# that broad rules above would otherwise catch. Do NOT remove these.
+# =============================================================================
+!.gitkeep
+!validation/data/.gitkeep
+
+# Required infrastructure config (NOT secrets — every clone needs these):
+!database.rules.json      # Firebase Realtime DB security rules (no keys inside)
+!firestore.rules
+!storage.rules
