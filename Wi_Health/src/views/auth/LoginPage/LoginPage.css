@@ -1,0 +1,17 @@
+.login-page__hero,
+.login-page__roles,
+.login-page__form {
+  position: relative;
+  z-index: 1;
+}
+
+@media (max-width: 1080px) {
+  .login-page__card {
+    grid-template-columns: 1fr;
+  }
+
+  .login-page__form {
+    grid-template-columns: 1fr;
+  }
+}
+
