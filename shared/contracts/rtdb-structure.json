@@ -1,0 +1,97 @@
+{
+  "$comment": "Wi-Health Realtime Database structure contract. Types use TS-ish notation; 'epochMs' = integer milliseconds since epoch (server time). Enforced by cloud/database.rules.json.",
+  "version": 1,
+  "tree": {
+    "users": {
+      "$uid": {
+        "profile": {
+          "name": "string",
+          "email": "string",
+          "createdAt": "epochMs"
+        },
+        "role": "'app_user' | 'admin'  — mirror of the token claim, for display/queries; claim is authoritative",
+        "devices": {
+          "$deviceId": "true  — devices linked to this account (written by admin only)"
+        },
+        "fcmTokens": {
+          "$token": "true  — push registration tokens for this account"
+        },
+        "settings": {
+          "pushEnabled": "boolean",
+          "urgentOnly": "boolean",
+          "soundEnabled": "boolean"
+        }
+      }
+    },
+    "devices": {
+      "$deviceId": {
+        "meta": {
+          "$comment": "Written by admin during assignment.",
+          "model": "'esp32-s3'",
+          "firmware": "string (e.g. 'v0.4.2')",
+          "room": "string",
+          "patientName": "string",
+          "patientRelation": "string",
+          "normalLow": "int (breaths/min lower bound)",
+          "normalHigh": "int (breaths/min upper bound)",
+          "ownerUid": "string ($uid of the linked App User)"
+        },
+        "live": {
+          "$comment": "Written by the device every ~5 s. See device-live-schema.json.",
+          "bpm": "number (0 when status != 'ok')",
+          "confidence": "number 0..1",
+          "signalQuality": "number 0..1",
+          "status": "'ok' | 'no_breathing' | 'low_signal' | 'calibrating'",
+          "updatedAt": "epochMs"
+        },
+        "sessions": {
+          "$sessionId": {
+            "startedAt": "epochMs",
+            "endedAt": "epochMs",
+            "avgBpm": "number",
+            "minBpm": "number",
+            "maxBpm": "number",
+            "validPct": "int 0..100"
+          }
+        },
+        "health": {
+          "online": "boolean (onDisconnect handler sets false)",
+          "lastSeen": "epochMs"
+        }
+      }
+    },
+    "alerts": {
+      "$deviceId": {
+        "$alertId": {
+          "type": "'apnea' | 'tachypnea' | 'bradypnea' | 'low_signal'",
+          "severity": "'urgent' | 'warning' | 'info'",
+          "summary": "string",
+          "detail": "map<string,string> (label -> value rows)",
+          "raisedAt": "epochMs",
+          "votes": "string (e.g. '3/3' temporal voting result)",
+          "acknowledged": "boolean (owner or admin may set true)",
+          "acknowledgedBy": "string uid | null"
+        }
+      }
+    },
+    "complaints": {
+      "$complaintId": {
+        "uid": "string (author — must equal auth.uid on create)",
+        "category": "'Device issue' | 'App issue' | 'Alert accuracy' | 'Other'",
+        "subject": "string",
+        "description": "string",
+        "status": "'open' | 'in_progress' | 'resolved'  — transitions by admin only",
+        "adminResponse": "string | null (admin only)",
+        "createdAt": "epochMs",
+        "updatedAt": "epochMs"
+      }
+    }
+  },
+  "accessSummary": {
+    "users/$uid": "read/write self; admin read/write all; role + devices subtrees admin-write only",
+    "devices/$deviceId/live|sessions|health": "write: that device's token only; read: linked owner + admin",
+    "devices/$deviceId/meta": "write: admin; read: linked owner + admin",
+    "alerts/$deviceId": "write: device (create) + owner/admin (acknowledge); read: linked owner + admin",
+    "complaints": "create: any authed app_user (own uid); read: author + admin; status/adminResponse: admin only"
+  }
+}

@@ -142,14 +142,36 @@ class PrimaryButton extends StatelessWidget {
     required this.text,
     required this.onPressed,
     this.trailingArrow = true,
+    this.loading = false,
   });
 
   final String text;
   final VoidCallback onPressed;
   final bool trailingArrow;
 
+  /// Shows a spinner and ignores taps while an async action runs.
+  final bool loading;
+
   @override
   Widget build(BuildContext context) {
+    if (loading) {
+      return Container(
+        height: 54,
+        decoration: BoxDecoration(
+          gradient: wiBrandGradient,
+          borderRadius: BorderRadius.circular(30),
+          boxShadow: wiButtonShadow,
+        ),
+        child: const Center(
+          child: SizedBox(
+            width: 22,
+            height: 22,
+            child: CircularProgressIndicator(
+                color: Colors.white, strokeWidth: 2.4),
+          ),
+        ),
+      );
+    }
     return Container(
       height: 54,
       decoration: BoxDecoration(

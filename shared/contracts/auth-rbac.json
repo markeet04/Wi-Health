@@ -1,0 +1,52 @@
+{
+  "$comment": "Wi-Health RBAC contract — single source of truth for roles, permissions and token claims. Firmware, mobile (Flutter), admin (React), NestJS backend and Firebase rules must all agree with this file.",
+  "version": 1,
+  "roles": {
+    "app_user": {
+      "description": "Patient or caregiver — identical capabilities. Access is scoped to the devices linked to the account.",
+      "surfaces": ["mobile"],
+      "permissions": [
+        "viewOwnPatients",
+        "viewLiveReadout",
+        "viewOwnHistory",
+        "acknowledgeOwnAlerts",
+        "manageOwnProfile",
+        "pairDevice",
+        "submitComplaint",
+        "viewOwnComplaints",
+        "receivePush"
+      ]
+    },
+    "admin": {
+      "description": "Fleet operator — uses the web admin panel only. Never logs into the mobile app.",
+      "surfaces": ["admin-web"],
+      "permissions": [
+        "viewFleet",
+        "viewAllPatientsLive",
+        "manageUsers",
+        "manageAssignments",
+        "overseeAlerts",
+        "resolveComplaints",
+        "manageAdminSettings"
+      ]
+    },
+    "device": {
+      "description": "Not a human role. ESP32-S3 sensors authenticate with a custom token minted by the backend (uid = deviceId, claim device=true) and may only write their own paths.",
+      "surfaces": ["firmware"],
+      "permissions": ["writeOwnLive", "writeOwnSessions", "writeOwnAlerts"]
+    }
+  },
+  "tokenClaims": {
+    "$comment": "Firebase custom claims set by the NestJS backend (Admin SDK) — never writable by clients. Rules check auth.token.role / auth.token.device.",
+    "role": "app_user | admin",
+    "device": "true (only on device custom tokens; human tokens omit it)"
+  },
+  "provisioning": {
+    "signup": "Client registers via Firebase Auth (email+password). Backend onUserCreate hook (or first-login endpoint) sets claim role=app_user and creates /users/$uid.",
+    "promoteAdmin": "Backend-only endpoint (existing admin required) sets claim role=admin. There is no client path to change roles.",
+    "device": "Admin registers a device in the panel; backend mints a long-lived custom token with uid=deviceId, device=true; token is flashed to the ESP32-S3 during provisioning.",
+    "assignment": "Admin links deviceId -> patient -> App User account by writing /users/$uid/devices/$deviceId=true and /devices/$deviceId/meta (see rtdb-structure.json). These links power the mobile patient switcher."
+  },
+  "mobilePolicy": "The mobile app requires permission viewOwnPatients (role app_user). Admin credentials are rejected client-side after authentication AND have no readable data paths on mobile flows server-side.",
+  "adminPanelPolicy": "The React admin panel requires role=admin in token claims; route guard redirects non-admins to login with an error."
+}

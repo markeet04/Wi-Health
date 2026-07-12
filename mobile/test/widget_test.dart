@@ -6,6 +6,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:wi_health/auth/auth_controller.dart';
+import 'package:wi_health/auth/mock_auth_service.dart';
+import 'package:wi_health/auth/roles.dart';
 import 'package:wi_health/main.dart';
 import 'package:wi_health/mock_data.dart';
 import 'package:wi_health/models.dart';
@@ -18,18 +21,32 @@ Future<void> pumpTransition(WidgetTester tester) async {
 }
 
 /// Boots through splash (and onboarding unless already seen) to login.
+/// Resets the auth session so tests stay independent.
 Future<void> bootToLogin(WidgetTester tester,
     {bool skipOnboarding = true}) async {
   SplashScreen.seenOnboarding = skipOnboarding;
+  authController.logout(); // fire-and-forget; timer fires in the pumps below
   await tester.pumpWidget(const WiHealthApp());
-  // Let the splash timer fire, then the fade route complete.
+  // Splash timer (2600 ms) → session restore (mock latency) → fade route.
   await tester.pump(const Duration(milliseconds: 2700));
+  await tester.pump(const Duration(milliseconds: 500));
   await pumpTransition(tester);
+}
+
+Future<void> enterCredentials(WidgetTester tester,
+    {String email = 'qasim@wihealth.app', String password = 'demo123'}) async {
+  await tester.enterText(
+      find.widgetWithText(TextField, 'Enter your email'), email);
+  await tester.enterText(
+      find.widgetWithText(TextField, 'Enter your password'), password);
 }
 
 Future<void> login(WidgetTester tester) async {
   await bootToLogin(tester);
+  await enterCredentials(tester);
   await tester.tap(find.text('Login'));
+  // Mock auth latency, then the route transition.
+  await tester.pump(const Duration(milliseconds: 500));
   await pumpTransition(tester);
 }
 
@@ -37,12 +54,14 @@ void main() {
   testWidgets('splash shows brand then onboarding on first run',
       (tester) async {
     SplashScreen.seenOnboarding = false;
+    authController.logout();
     await tester.pumpWidget(const WiHealthApp());
 
     expect(find.text('Wi-Health'), findsOneWidget);
     expect(find.text('warming up the sensors…'), findsOneWidget);
 
     await tester.pump(const Duration(milliseconds: 2700));
+    await tester.pump(const Duration(milliseconds: 500));
     await pumpTransition(tester);
 
     // First run → onboarding walkthrough.
@@ -58,8 +77,10 @@ void main() {
   testWidgets('onboarding pages advance with Next until Get Started',
       (tester) async {
     SplashScreen.seenOnboarding = false;
+    authController.logout();
     await tester.pumpWidget(const WiHealthApp());
     await tester.pump(const Duration(milliseconds: 2700));
+    await tester.pump(const Duration(milliseconds: 500));
     await pumpTransition(tester);
 
     await tester.tap(find.text('Next'));
@@ -205,6 +226,101 @@ void main() {
     expect(find.text('Bilal Ahmed'), findsWidgets);
     // Let the confirmation snackbar timer expire before the test ends.
     await tester.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets('login rejects wrong credentials with an error banner',
+      (tester) async {
+    await bootToLogin(tester);
+    await enterCredentials(tester,
+        email: 'qasim@wihealth.app', password: 'wrong-pass');
+    await tester.tap(find.text('Login'));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump();
+
+    expect(find.text('Incorrect email or password.'), findsOneWidget);
+    expect(find.text('Welcome Back'), findsOneWidget); // still on login
+  });
+
+  testWidgets('RBAC blocks admin accounts from the mobile app',
+      (tester) async {
+    await bootToLogin(tester);
+    await enterCredentials(tester,
+        email: 'admin@wihealth.app', password: 'admin123');
+    await tester.tap(find.text('Login'));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump();
+
+    expect(
+        find.text(
+            'Admin accounts sign in on the web admin panel, not the mobile app.'),
+        findsOneWidget);
+    expect(find.text('Welcome Back'), findsOneWidget); // bounced
+    expect(authController.isAuthenticated, isFalse);
+  });
+
+  testWidgets('a valid session is restored past login on next launch',
+      (tester) async {
+    await login(tester); // establishes a session in the mock service
+
+    // Relaunch: splash should restore the session and go straight home.
+    SplashScreen.seenOnboarding = true;
+    await tester.pumpWidget(const WiHealthApp());
+    await tester.pump(const Duration(milliseconds: 2700));
+    await tester.pump(const Duration(milliseconds: 500));
+    await pumpTransition(tester);
+
+    expect(find.text('Monitored Patients'), findsOneWidget);
+  });
+
+  group('RBAC', () {
+    test('permission matrix separates the two roles', () {
+      expect(UserRole.appUser.can(Permission.viewOwnPatients), isTrue);
+      expect(UserRole.appUser.can(Permission.submitComplaint), isTrue);
+      expect(UserRole.appUser.can(Permission.manageUsers), isFalse);
+      expect(UserRole.appUser.can(Permission.resolveComplaints), isFalse);
+
+      expect(UserRole.admin.can(Permission.manageUsers), isTrue);
+      expect(UserRole.admin.can(Permission.resolveComplaints), isTrue);
+      expect(UserRole.admin.can(Permission.viewOwnPatients), isFalse);
+
+      expect(UserRole.appUser.mayUseMobileApp, isTrue);
+      expect(UserRole.admin.mayUseMobileApp, isFalse);
+    });
+
+    test('roles map onto Firebase custom claims', () {
+      expect(UserRole.fromClaim('admin'), UserRole.admin);
+      expect(UserRole.fromClaim('app_user'), UserRole.appUser);
+      expect(UserRole.fromClaim(null), UserRole.appUser); // safe default
+      expect(UserRole.admin.claim, 'admin');
+      expect(UserRole.appUser.claim, 'app_user');
+    });
+
+    test('mock service seeds demo accounts and auto-provisions new ones',
+        () async {
+      final service = MockAuthService(latency: Duration.zero);
+
+      final qasim = await service.signIn(
+          email: 'qasim@wihealth.app', password: 'demo123');
+      expect(qasim.role, UserRole.appUser);
+      expect(qasim.linkedDeviceIds, hasLength(3));
+
+      final admin = await service.signIn(
+          email: 'admin@wihealth.app', password: 'admin123');
+      expect(admin.role, UserRole.admin);
+
+      final fresh = await service.signIn(
+          email: 'new.user@example.com', password: 'secret1');
+      expect(fresh.role, UserRole.appUser);
+      expect(fresh.name, 'New User');
+
+      expect(
+        () => service.signUp(
+            name: 'Dup',
+            email: 'qasim@wihealth.app',
+            password: 'whatever1'),
+        throwsA(isA<Object>()),
+      );
+    });
   });
 
   group('AppState', () {

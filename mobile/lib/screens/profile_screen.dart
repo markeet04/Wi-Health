@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../auth/auth_controller.dart';
+import '../auth/roles.dart';
 import '../models.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -150,17 +152,24 @@ class ProfileScreen extends StatelessWidget {
                     const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                 child: Column(
                   children: [
-                    ListRow(
-                      icon: Icons.support_agent_rounded,
-                      iconColor: WiColors.amber,
-                      iconBackground: WiColors.amberSoft,
-                      title: 'Complaints & Support',
-                      subtitle: '${app.complaints.length} previous requests',
-                      onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute(
-                              builder: (_) => SupportScreen(app: app))),
-                    ),
-                    const Divider(height: 1, indent: 52),
+                    // RBAC-gated: only roles with submitComplaint see this
+                    // (App Users do; kept explicit so the pattern is visible).
+                    if (authController.user
+                            ?.can(Permission.submitComplaint) ??
+                        true) ...[
+                      ListRow(
+                        icon: Icons.support_agent_rounded,
+                        iconColor: WiColors.amber,
+                        iconBackground: WiColors.amberSoft,
+                        title: 'Complaints & Support',
+                        subtitle:
+                            '${app.complaints.length} previous requests',
+                        onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                                builder: (_) => SupportScreen(app: app))),
+                      ),
+                      const Divider(height: 1, indent: 52),
+                    ],
                     ListRow(
                       icon: Icons.notifications_active_outlined,
                       iconColor: WiColors.blue,
@@ -194,10 +203,16 @@ class ProfileScreen extends StatelessWidget {
                   title: 'Log Out',
                   titleColor: WiColors.red,
                   trailing: const SizedBox.shrink(),
-                  onTap: () => Navigator.of(context).pushAndRemoveUntil(
-                    MaterialPageRoute(builder: (_) => const LoginScreen()),
-                    (route) => false,
-                  ),
+                  onTap: () async {
+                    await authController.logout();
+                    if (context.mounted) {
+                      Navigator.of(context).pushAndRemoveUntil(
+                        MaterialPageRoute(
+                            builder: (_) => const LoginScreen()),
+                        (route) => false,
+                      );
+                    }
+                  },
                 ),
               ),
               const SizedBox(height: 16),

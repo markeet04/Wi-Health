@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import '../auth/auth_controller.dart';
 import '../theme.dart';
 import '../widgets/logo.dart';
 import 'auth/login_screen.dart';
 import 'onboarding_screen.dart';
+import 'shell.dart';
 
 /// Animated splash: the logo "breathes" inside expanding rings while a
 /// dots loader warms up, then fades into onboarding (first launch) or login.
@@ -29,11 +31,16 @@ class _SplashScreenState extends State<SplashScreen>
     Future.delayed(const Duration(milliseconds: 2600), _next);
   }
 
-  void _next() {
+  Future<void> _next() async {
+    // Restore a persisted session (RBAC-gated: stale admin sessions are
+    // signed out) — skip login entirely when one is valid.
+    final restored = await authController.restoreSession();
     if (!mounted) return;
-    final target = SplashScreen.seenOnboarding
-        ? const LoginScreen() as Widget
-        : const OnboardingScreen();
+    final Widget target = restored
+        ? const ShellScreen()
+        : SplashScreen.seenOnboarding
+            ? const LoginScreen()
+            : const OnboardingScreen();
     Navigator.of(context).pushReplacement(PageRouteBuilder(
       pageBuilder: (_, _, _) => target,
       transitionsBuilder: (_, animation, _, child) =>

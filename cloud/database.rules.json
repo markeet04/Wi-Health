@@ -1,0 +1,91 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "users": {
+      ".read": "auth != null && auth.token.role === 'admin'",
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || auth.token.role === 'admin')",
+        "profile": {
+          ".write": "auth != null && (auth.uid === $uid || auth.token.role === 'admin')"
+        },
+        "settings": {
+          ".write": "auth != null && auth.uid === $uid"
+        },
+        "fcmTokens": {
+          ".write": "auth != null && auth.uid === $uid"
+        },
+        "role": {
+          ".write": "auth != null && auth.token.role === 'admin'",
+          ".validate": "newData.val() === 'app_user' || newData.val() === 'admin'"
+        },
+        "devices": {
+          ".write": "auth != null && auth.token.role === 'admin'"
+        }
+      }
+    },
+
+    "devices": {
+      ".read": "auth != null && auth.token.role === 'admin'",
+      "$deviceId": {
+        ".read": "auth != null && (auth.token.role === 'admin' || root.child('users').child(auth.uid).child('devices').child($deviceId).exists())",
+        "meta": {
+          ".write": "auth != null && auth.token.role === 'admin'",
+          "normalLow": { ".validate": "newData.isNumber() && newData.val() > 0" },
+          "normalHigh": { ".validate": "newData.isNumber() && newData.val() <= 60" }
+        },
+        "live": {
+          ".write": "auth != null && (auth.uid === $deviceId && auth.token.device === true)",
+          ".validate": "newData.hasChildren(['bpm', 'confidence', 'signalQuality', 'status', 'updatedAt'])",
+          "bpm": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 60" },
+          "confidence": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1" },
+          "signalQuality": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1" },
+          "status": { ".validate": "newData.val() === 'ok' || newData.val() === 'no_breathing' || newData.val() === 'low_signal' || newData.val() === 'calibrating'" },
+          "updatedAt": { ".validate": "newData.isNumber()" },
+          "$other": { ".validate": false }
+        },
+        "sessions": {
+          ".write": "auth != null && (auth.uid === $deviceId && auth.token.device === true)"
+        },
+        "health": {
+          ".write": "auth != null && (auth.uid === $deviceId && auth.token.device === true)"
+        }
+      }
+    },
+
+    "alerts": {
+      "$deviceId": {
+        ".read": "auth != null && (auth.token.role === 'admin' || root.child('users').child(auth.uid).child('devices').child($deviceId).exists())",
+        "$alertId": {
+          ".write": "auth != null && ((auth.uid === $deviceId && auth.token.device === true && !data.exists()) || auth.token.role === 'admin')",
+          "acknowledged": {
+            ".write": "auth != null && (auth.token.role === 'admin' || root.child('users').child(auth.uid).child('devices').child($deviceId).exists())",
+            ".validate": "newData.isBoolean()"
+          },
+          "acknowledgedBy": {
+            ".write": "auth != null && (auth.token.role === 'admin' || root.child('users').child(auth.uid).child('devices').child($deviceId).exists())",
+            ".validate": "newData.val() === auth.uid"
+          },
+          "severity": { ".validate": "newData.val() === 'urgent' || newData.val() === 'warning' || newData.val() === 'info'" },
+          "type": { ".validate": "newData.val() === 'apnea' || newData.val() === 'tachypnea' || newData.val() === 'bradypnea' || newData.val() === 'low_signal'" }
+        }
+      }
+    },
+
+    "complaints": {
+      ".read": "auth != null && auth.token.role === 'admin'",
+      ".indexOn": ["uid", "status"],
+      "$complaintId": {
+        ".read": "auth != null && (data.child('uid').val() === auth.uid || auth.token.role === 'admin')",
+        ".write": "auth != null && ((!data.exists() && newData.child('uid').val() === auth.uid && auth.token.role !== 'admin') || auth.token.role === 'admin')",
+        "status": {
+          ".validate": "newData.val() === 'open' || newData.val() === 'in_progress' || newData.val() === 'resolved'"
+        },
+        "adminResponse": {
+          ".write": "auth != null && auth.token.role === 'admin'"
+        }
+      }
+    }
+  }
+}

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../auth/auth_controller.dart';
 import '../mock_data.dart';
 import '../models.dart';
 import '../theme.dart';
@@ -20,6 +21,18 @@ class ShellScreen extends StatefulWidget {
 class _ShellScreenState extends State<ShellScreen> {
   final AppState app = buildMockAppState();
   int _tab = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Identity comes from the auth session; patient/device data stays
+    // mocked until the Realtime Database is wired.
+    final user = authController.user;
+    if (user != null) {
+      app.userName = user.name;
+      app.userEmail = user.email;
+    }
+  }
 
   void _openTab(int i) => setState(() => _tab = i);
 
