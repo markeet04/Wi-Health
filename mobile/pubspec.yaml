@@ -37,6 +37,9 @@ dependencies:
   # Lottie animations — drop .json files into assets/lottie/ and reference
   # them via the LottieBox widget (falls back to built-in animations).
   lottie: ^3.1.3
+  firebase_core: ^4.11.0
+  firebase_auth: ^6.5.4
+  firebase_database: ^12.4.4
 
 dev_dependencies:
   flutter_test:

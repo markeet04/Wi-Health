@@ -17,7 +17,7 @@
           ".write": "auth != null && auth.uid === $uid"
         },
         "role": {
-          ".write": "auth != null && auth.token.role === 'admin'",
+          ".write": "auth != null && (auth.token.role === 'admin' || (auth.uid === $uid && !data.exists() && newData.val() === 'app_user'))",
           ".validate": "newData.val() === 'app_user' || newData.val() === 'admin'"
         },
         "devices": {

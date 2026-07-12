@@ -1,95 +1,188 @@
+import 'package:firebase_auth/firebase_auth.dart' as fb;
+import 'package:firebase_database/firebase_database.dart';
+
+import 'auth_exceptions.dart';
 import 'auth_models.dart';
 import 'auth_service.dart';
+import 'roles.dart';
 
-/// Firebase implementation slot — for the teammate wiring connectivity.
+/// Real Firebase implementation of [AuthService].
 ///
-/// ── Setup checklist ────────────────────────────────────────────────────
-/// 1. Create the (separate!) Wi-Health Firebase project; enable
-///    Email/Password auth and Realtime Database.
-/// 2. `flutter pub add firebase_core firebase_auth firebase_database`
-///    then `flutterfire configure` (generates lib/firebase_options.dart).
-/// 3. Drop google-services.json into android/app/ — it is gitignored on
-///    purpose (contains API keys); get it from the team out-of-band.
-/// 4. In main.dart:  await Firebase.initializeApp(options: ...);
-/// 5. In auth_controller.dart swap MockAuthService() for
-///    FirebaseAuthService().
-/// 6. Deploy cloud/database.rules.json (`firebase deploy --only database`
-///    from the cloud/ folder). Roles arrive as custom claims set by the
-///    NestJS backend — see shared/contracts/auth-rbac.json.
+/// Activated by setting AppConfig.useFirebase = true once
+/// `flutterfire configure` has generated lib/firebase_options.dart and the
+/// rules in cloud/database.rules.json are deployed.
 ///
-/// ── Implementation guide (per method) ──────────────────────────────────
-/// restoreSession:
-///   final u = FirebaseAuth.instance.currentUser;
-///   if (u == null) return null;
-///   return _toAuthUser(u);   // includes claim fetch below
-///
-/// signIn:
-///   try {
-///     final cred = await FirebaseAuth.instance
-///         .signInWithEmailAndPassword(email: email, password: password);
-///     return _toAuthUser(cred.user!);
-///   } on FirebaseAuthException catch (e) {
-///     throw _mapError(e);    // invalid-email/user-not-found/wrong-password...
-///   }
-///
-/// signUp:
-///   final cred = await FirebaseAuth.instance
-///       .createUserWithEmailAndPassword(email: email, password: password);
-///   await cred.user!.updateDisplayName(name);
-///   await cred.user!.sendEmailVerification();
-///   // Role claim (app_user) is set by the backend onUserCreate hook;
-///   // force-refresh the token so the claim is visible immediately:
-///   await cred.user!.getIdToken(true);
-///   return _toAuthUser(cred.user!);
-///
-/// _toAuthUser (role + linked devices):
-///   final token = await user.getIdTokenResult();
-///   final role = UserRole.fromClaim(token.claims?['role'] as String?);
-///   final snap = await FirebaseDatabase.instance
-///       .ref('users/${user.uid}/devices').get();
-///   final deviceIds = snap.exists
-///       ? `(snap.value as Map).keys.cast<String>().toList()`
-///       : `const <String>[]`;
-///   return AuthUser(uid: user.uid, name: user.displayName ?? '',
-///       email: user.email ?? '', role: role,
-///       emailVerified: user.emailVerified, linkedDeviceIds: deviceIds);
-///
-/// sendPasswordReset:
-///   await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
-///
-/// signOut:
-///   await FirebaseAuth.instance.signOut();
-///
-/// Error mapping → AuthException(AuthErrorCode.x):
-///   invalid-email → invalidEmail · user-not-found → userNotFound
-///   wrong-password / invalid-credential → wrongPassword
-///   email-already-in-use → emailInUse · weak-password → weakPassword
-///   network-request-failed → network · anything else → unknown
+/// Role resolution (RBAC): custom claims (`role`) are authoritative when
+/// present — the NestJS backend will set them later. Until that backend
+/// exists, the role is read from /users/$uid/role, which the rules only
+/// allow to be self-created as 'app_user' (no self-elevation path). Admins
+/// are promoted by editing that node + claims server-side, never from a
+/// client.
 class FirebaseAuthService implements AuthService {
-  static const _todo =
-      'FirebaseAuthService is not wired yet — follow the checklist in '
-      'lib/auth/firebase_auth_service.dart, then swap it in inside '
-      'auth_controller.dart.';
+  FirebaseAuthService({fb.FirebaseAuth? auth, FirebaseDatabase? database})
+      : _auth = auth ?? fb.FirebaseAuth.instance,
+        _db = database ?? FirebaseDatabase.instance;
+
+  final fb.FirebaseAuth _auth;
+  final FirebaseDatabase _db;
 
   @override
-  Future<AuthUser?> restoreSession() => throw UnimplementedError(_todo);
+  Future<AuthUser?> restoreSession() async {
+    final user = _auth.currentUser;
+    if (user == null) return null;
+    try {
+      return await _toAuthUser(user);
+    } catch (_) {
+      // A broken/partial account state shouldn't wedge the splash screen.
+      return null;
+    }
+  }
 
   @override
-  Future<AuthUser> signIn({required String email, required String password}) =>
-      throw UnimplementedError(_todo);
+  Future<AuthUser> signIn(
+      {required String email, required String password}) async {
+    try {
+      final cred = await _auth.signInWithEmailAndPassword(
+          email: email.trim(), password: password);
+      return await _toAuthUser(cred.user!);
+    } on fb.FirebaseAuthException catch (e) {
+      throw _mapError(e);
+    }
+  }
 
   @override
   Future<AuthUser> signUp({
     required String name,
     required String email,
     required String password,
-  }) =>
-      throw UnimplementedError(_todo);
+  }) async {
+    try {
+      final cred = await _auth.createUserWithEmailAndPassword(
+          email: email.trim(), password: password);
+      final user = cred.user!;
+
+      // The account now exists — everything below is best-effort so a
+      // hiccup here can never fail the signup. The display name is set
+      // again on next login via self-heal, the verification email can be
+      // re-requested, and _toAuthUser re-provisions a missing user node.
+      try {
+        await user.updateDisplayName(name.trim());
+        await user.sendEmailVerification();
+        await _provisionUserNode(user,
+            name: name.trim(), email: email.trim().toLowerCase());
+      } catch (_) {
+        // Recovered on next login by the self-heal in _toAuthUser.
+      }
+
+      return await _toAuthUser(user, displayNameOverride: name.trim());
+    } on fb.FirebaseAuthException catch (e) {
+      throw _mapError(e);
+    }
+  }
 
   @override
-  Future<void> sendPasswordReset(String email) =>
-      throw UnimplementedError(_todo);
+  Future<void> sendPasswordReset(String email) async {
+    try {
+      await _auth.sendPasswordResetEmail(email: email.trim());
+    } on fb.FirebaseAuthException catch (e) {
+      throw _mapError(e);
+    }
+  }
 
   @override
-  Future<void> signOut() => throw UnimplementedError(_todo);
+  Future<void> signOut() => _auth.signOut();
+
+  /// Creates the /users/$uid subtree. Written child-by-child on purpose:
+  /// the rules grant self-writes on profile/role/settings individually,
+  /// and a single parent-level set() would be denied (child permissions
+  /// don't grant the parent write in RTDB).
+  Future<void> _provisionUserNode(fb.User user,
+      {required String name, required String email}) async {
+    final base = _db.ref('users/${user.uid}');
+    await base.child('profile').set({
+      'name': name,
+      'email': email,
+      'createdAt': ServerValue.timestamp,
+    });
+    await base.child('role').set(UserRole.appUser.claim);
+    await base.child('settings').set({
+      'pushEnabled': true,
+      'urgentOnly': false,
+      'soundEnabled': true,
+    });
+  }
+
+  Future<AuthUser> _toAuthUser(fb.User user,
+      {String? displayNameOverride}) async {
+    // Self-heal: an account whose signup was interrupted (or created
+    // before provisioning worked) gets its /users node created on login.
+    try {
+      final profile = await _db.ref('users/${user.uid}/profile').get();
+      if (!profile.exists) {
+        await _provisionUserNode(
+          user,
+          name: displayNameOverride ??
+              user.displayName ??
+              MockNameFallback.fromEmail(user.email ?? ''),
+          email: (user.email ?? '').toLowerCase(),
+        );
+      }
+    } catch (_) {
+      // Provisioning is best-effort here — never block a valid login.
+    }
+
+    // Custom claims win (future NestJS backend); DB role is the fallback.
+    final token = await user.getIdTokenResult();
+    var claim = token.claims?['role'] as String?;
+    claim ??= (await _db.ref('users/${user.uid}/role').get()).value as String?;
+    final role = UserRole.fromClaim(claim);
+
+    var deviceIds = const <String>[];
+    if (role == UserRole.appUser) {
+      final snap = await _db.ref('users/${user.uid}/devices').get();
+      if (snap.exists && snap.value is Map) {
+        deviceIds = (snap.value as Map).keys.cast<String>().toList();
+      }
+    }
+
+    return AuthUser(
+      uid: user.uid,
+      name: displayNameOverride ??
+          user.displayName ??
+          MockNameFallback.fromEmail(user.email ?? ''),
+      email: user.email ?? '',
+      role: role,
+      emailVerified: user.emailVerified,
+      linkedDeviceIds: deviceIds,
+    );
+  }
+
+  AuthException _mapError(fb.FirebaseAuthException e) => switch (e.code) {
+        'invalid-email' => const AuthException(AuthErrorCode.invalidEmail),
+        'user-not-found' => const AuthException(AuthErrorCode.userNotFound),
+        'wrong-password' ||
+        'invalid-credential' ||
+        'INVALID_LOGIN_CREDENTIALS' =>
+          const AuthException(AuthErrorCode.wrongPassword),
+        'email-already-in-use' =>
+          const AuthException(AuthErrorCode.emailInUse),
+        'weak-password' => const AuthException(AuthErrorCode.weakPassword),
+        'network-request-failed' =>
+          const AuthException(AuthErrorCode.network),
+        _ => AuthException(AuthErrorCode.unknown, e.message),
+      };
+}
+
+/// Tiny helper so a Firebase user without a display name still gets a
+/// friendly one derived from their email.
+class MockNameFallback {
+  static String fromEmail(String email) {
+    if (email.isEmpty) return 'Wi-Health User';
+    final raw = email.split('@').first.replaceAll(RegExp(r'[._+-]+'), ' ');
+    return raw
+        .split(' ')
+        .where((w) => w.isNotEmpty)
+        .map((w) => w[0].toUpperCase() + w.substring(1))
+        .join(' ');
+  }
 }

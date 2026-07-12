@@ -1,7 +1,9 @@
 import 'package:flutter/foundation.dart';
+import '../app_config.dart';
 import 'auth_exceptions.dart';
 import 'auth_models.dart';
 import 'auth_service.dart';
+import 'firebase_auth_service.dart';
 import 'mock_auth_service.dart';
 import 'roles.dart';
 
@@ -115,6 +117,7 @@ class AuthController extends ChangeNotifier {
   }
 }
 
-/// App-wide instance. To go live, swap MockAuthService for
-/// FirebaseAuthService() — see lib/auth/firebase_auth_service.dart.
-final AuthController authController = AuthController(MockAuthService());
+/// App-wide instance — backend selected by AppConfig.useFirebase.
+final AuthController authController = AuthController(
+  AppConfig.useFirebase ? FirebaseAuthService() : MockAuthService(),
+);

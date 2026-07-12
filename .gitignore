@@ -29,6 +29,7 @@
 # Firebase client config (contains API keys — treat as secret, no template):
 google-services.json
 GoogleService-Info.plist
+firebase_options.dart
 
 # Firebase / GCP service-account & admin credentials (server-side secrets):
 *serviceAccount*.json
