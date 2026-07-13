@@ -3,6 +3,11 @@
   display: grid;
   grid-template-columns: 280px 1fr;
   min-height: 100svh;
+  height: 100svh;
+}
+
+.admin-shell {
+  overflow: hidden;
 }
 
 .login-shell {
@@ -162,6 +167,8 @@
   padding: 28px;
   position: relative;
   isolation: isolate;
+  height: 100svh;
+  overflow-y: auto;
 }
 
 .content::before {
@@ -608,10 +615,14 @@ th {
   .app-shell,
   .admin-shell {
     grid-template-columns: 1fr;
+    height: auto;
+    overflow: visible;
   }
 
   .content {
     padding: 16px;
+    height: auto;
+    overflow: visible;
   }
 
   .page-grid {

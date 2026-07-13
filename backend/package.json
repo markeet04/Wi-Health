@@ -6,7 +6,7 @@
   "scripts": {
     "start:dev": "ts-node src/main.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/main.js"
+    "start": "npm run build && node dist/main.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",
