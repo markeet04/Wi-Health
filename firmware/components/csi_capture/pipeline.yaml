@@ -1,0 +1,17 @@
+preprocessing:
+  # Module 6.2.2 — cleaning + resampling
+  target_sample_rate_hz: 20
+  hampel_window_size: 5
+  hampel_threshold: 3.0
+  null_subcarrier_threshold: 2.0
+  phase_mode: amplitude_only
+  # Module 6.2.3 — Butterworth bandpass (zero-phase, per subcarrier)
+  bandpass_low_hz: 0.3      # high-pass cutoff (removes DC drift / regime shift)
+  bandpass_high_hz: 3.0     # low-pass cutoff (removes fan harmonics / EMI)
+  butter_order: 4           # SOS-form Butterworth, ~24 dB/oct rolloff per side
+
+# Module 6.2.4 — per-window Z-score normalization
+normalization:
+  method: zscore
+  per_window: true
+  epsilon: 1.0e-8           # min within-window std; below this the subcarrier emits zeros

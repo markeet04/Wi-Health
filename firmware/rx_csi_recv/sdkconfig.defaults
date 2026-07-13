@@ -1,0 +1,20 @@
+# Pin target to ESP32-S3 + console at 921600 baud.
+# All other settings mirror esp-csi/examples/get-started/csi_recv/sdkconfig.defaults.
+CONFIG_IDF_TARGET="esp32s3"
+
+CONFIG_PARTITION_TABLE_OFFSET=0xa000
+
+# Console -> USB-Serial-JTAG (ESP32-S3 has a dedicated USB-Serial-JTAG
+# peripheral, separate from USB-OTG). These boards enumerate as VID 303A;
+# the upstream esp-csi example routes console to UART0, which is not wired
+# to the laptop on most S3 dev kits.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=30
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=128
+CONFIG_ESP_WIFI_CSI_ENABLED=y
+CONFIG_ESP_WIFI_AMPDU_TX_ENABLED=n
+
+# Default log level INFO; per-packet gain trace is LOGD so it stays out of the CSV stream.
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y

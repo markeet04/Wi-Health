@@ -1,0 +1,27 @@
+breathing:
+  target_sample_rate_hz: 10        # lower than intrusion's 20 Hz — breathing is slow
+  hampel_window_size: 5
+  hampel_threshold: 3.0
+  null_subcarrier_threshold: 2.0
+
+  # CSCR subcarrier pair selection
+  num_pairs: 20                     # top 20 pairs by breathing-band SNR
+  pair_selection_method: variance   # variance | exhaustive (exhaustive is slow)
+
+  # Breathing-specific bandpass
+  bandpass_low_hz: 0.1              # 6 breaths/min minimum
+  bandpass_high_hz: 0.5             # 30 breaths/min maximum
+  butter_order: 4
+
+  # Respiratory waveform smoothing
+  savgol_window: 21                 # Savitzky-Golay window (odd, ~2s at 10 Hz)
+  savgol_order: 3
+
+  # Windowing (longer than intrusion — need multiple breath cycles per window)
+  window_seconds: 30.0              # 30s captures 5-10 full breath cycles
+  stride_seconds: 5.0               # update BPM every 5s
+
+  # Rate extraction
+  min_bpm: 6                        # below this = not breathing / error
+  max_bpm: 30                       # above this = not breathing / error
+  agreement_threshold_bpm: 2.0      # FFT and autocorr must agree within this
