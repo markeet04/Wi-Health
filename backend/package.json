@@ -1,0 +1,25 @@
+{
+  "name": "wi-netra-admin-backend",
+  "private": true,
+  "version": "0.0.1",
+  "description": "NestJS backend for the Wi-Netra Health admin panel",
+  "scripts": {
+    "start:dev": "ts-node src/main.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.1.6",
+    "@nestjs/config": "^4.0.2",
+    "@nestjs/core": "^11.1.6",
+    "@nestjs/platform-express": "^11.1.6",
+    "firebase-admin": "^13.4.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
+  }
+}

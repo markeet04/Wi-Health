@@ -109,6 +109,26 @@
   cursor: pointer;
 }
 
+.login-page__hint {
+  margin-top: 12px;
+  color: var(--muted);
+  max-width: 42ch;
+  font-size: 0.92rem;
+}
+
+.login-page__actions {
+  display: flex;
+  flex-direction: column;
+  justify-content: end;
+  gap: 8px;
+}
+
+.login-error {
+  margin: 0;
+  color: #9f402f;
+  font-size: 0.88rem;
+}
+
 .ghost-btn,
 .stacked-form button,
 .inline-actions button,

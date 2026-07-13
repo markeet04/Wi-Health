@@ -5,6 +5,10 @@
   z-index: 1;
 }
 
+.login-page__actions {
+  align-self: end;
+}
+
 @media (max-width: 1080px) {
   .login-page__card {
     grid-template-columns: 1fr;
@@ -12,6 +16,10 @@
 
   .login-page__form {
     grid-template-columns: 1fr;
+  }
+
+  .login-page__actions {
+    align-self: stretch;
   }
 }
 

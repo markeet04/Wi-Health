@@ -1,6 +1,6 @@
 import './AppSidebar.css'
 
-function AppSidebar({ pages, activePage, onNavigate, onSignOut }) {
+function AppSidebar({ pages, activePage, onNavigate, onSignOut, session }) {
   return (
     <aside className="sidebar app-sidebar">
       <div>
@@ -11,7 +11,14 @@ function AppSidebar({ pages, activePage, onNavigate, onSignOut }) {
         </p>
       </div>
 
-      <div className="sidebar-role-badge">Admin session</div>
+      <div className="sidebar-role-badge">
+        {session?.source === 'firebase' ? 'Firebase admin session' : 'Admin session'}
+      </div>
+
+      <div className="sidebar-identity">
+        <strong>{session?.user?.name ?? 'Admin Ops'}</strong>
+        <span>{session?.user?.email ?? 'admin@wi-netra.health'}</span>
+      </div>
 
       <nav className="sidebar-nav">
         {pages.map((page) => (
