@@ -37,7 +37,7 @@
     }
   },
   "tokenClaims": {
-    "$comment": "Firebase custom claims set by the NestJS backend (Admin SDK) — never writable by clients. Rules check auth.token.role / auth.token.device.",
+    "$comment": "Firebase custom claims set by the NestJS backend (Admin SDK) — never writable by clients. Rules check auth.token.role / auth.token.device. The claim is a synced CACHE of /users/$uid/role: the backend re-reads the DB role on every session verify and re-syncs the claim, so promotions and demotions apply on the next request.",
     "role": "app_user | admin",
     "device": "true (only on device custom tokens; human tokens omit it)"
   },

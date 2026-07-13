@@ -269,25 +269,24 @@ export class AppService {
 
     const decoded = await getAuth(this.firebaseApp).verifyIdToken(accessToken, true)
     const email = (decoded.email ?? '').toLowerCase()
+    const claimRole = (decoded.role as string | undefined) ?? null
 
-    // Custom claims are authoritative once set; until then fall back to
-    // /users/$uid/role in RTDB (see shared/contracts/auth-rbac.json).
-    let role = (decoded.role as string | undefined) ?? null
-    if (!role) {
-      role = await this.lookupDatabaseRole(decoded.uid)
+    // /users/$uid/role in RTDB is the operational source of truth — it's
+    // what admins actually edit. The custom claim is a synced cache of it.
+    // Consulting the DB on every verify means promotions AND demotions take
+    // effect on the next request instead of waiting for (or surviving past)
+    // a token refresh.
+    const dbRole = await this.lookupDatabaseRole(decoded.uid)
+    const role = dbRole ?? claimRole ?? 'app_user'
+
+    if (role !== claimRole) {
+      await getAuth(this.firebaseApp)
+        .setCustomUserClaims(decoded.uid, { role })
+        .catch(() => undefined)
     }
 
     if (role !== 'admin' && !this.adminEmailAllowlist.includes(email)) {
       throw new ForbiddenException('Admin role required.')
-    }
-
-    // Promote the DB role into a custom claim so future tokens carry it —
-    // this is the backend's side of the RBAC contract. Token refresh picks
-    // it up; the current (already-verified) session continues unchanged.
-    if (role === 'admin' && !decoded.role) {
-      await getAuth(this.firebaseApp)
-        .setCustomUserClaims(decoded.uid, { role: 'admin' })
-        .catch(() => undefined)
     }
 
     return {
