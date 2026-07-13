@@ -126,9 +126,7 @@ export class AppService {
     }
 
     if (this.firebaseEnabled()) {
-      const session = await this.loginWithFirebase(email, password)
-      this.sessions.set(session.accessToken, session)
-      return session
+      return this.loginWithFirebase(email, password)
     }
 
     if (email !== this.demoEmail || password !== this.demoPassword) {
@@ -139,20 +137,23 @@ export class AppService {
     return demoSession
   }
 
-  async restoreSession(accessToken: string) {
-    const demo = this.sessions.get(accessToken)
-    if (demo) {
-      return demo
+  async restoreSession(accessToken: string): Promise<AdminSession> {
+    // With Firebase configured, EVERY session must verify against Firebase.
+    // The demo token/session paths exist only for env-less development —
+    // never alongside real auth.
+    if (this.firebaseEnabled()) {
+      const user = await this.verifyFirebaseToken(accessToken)
+      return { accessToken, source: 'firebase', user }
+    }
+
+    const cached = this.sessions.get(accessToken)
+    if (cached) {
+      return cached
     }
 
     if (accessToken === demoSession.accessToken) {
       this.sessions.set(accessToken, demoSession)
       return demoSession
-    }
-
-    if (this.firebaseEnabled()) {
-      const user = await this.verifyFirebaseToken(accessToken)
-      return { accessToken, source: 'firebase', user }
     }
 
     throw new UnauthorizedException('Invalid or expired session.')

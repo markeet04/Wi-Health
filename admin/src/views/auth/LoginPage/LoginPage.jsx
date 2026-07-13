@@ -2,8 +2,8 @@ import './LoginPage.css'
 import { useState } from 'react'
 
 function LoginPage({ onLogin, loading = false, error = '' }) {
-  const [email, setEmail] = useState('admin@wi-netra.health')
-  const [password, setPassword] = useState('demo-password')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
 
   return (
     <div className="login-shell login-page page-fade">
@@ -16,8 +16,8 @@ function LoginPage({ onLogin, loading = false, error = '' }) {
             complaints from the backend.
           </p>
           <p className="login-page__hint">
-            If the backend is not configured yet, the demo admin account still opens the local fallback
-            data so the UI remains usable during development.
+            Requires a Firebase account with the admin role. The demo account only works while the
+            backend runs without Firebase configuration.
           </p>
         </div>
 
@@ -30,11 +30,21 @@ function LoginPage({ onLogin, loading = false, error = '' }) {
         >
           <label>
             Email
-            <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+            <input
+              type="email"
+              value={email}
+              placeholder="admin email"
+              onChange={(event) => setEmail(event.target.value)}
+            />
           </label>
           <label>
             Password
-            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+            <input
+              type="password"
+              value={password}
+              placeholder="password"
+              onChange={(event) => setPassword(event.target.value)}
+            />
           </label>
           <div className="login-page__actions">
             {error ? <p className="login-error">{error}</p> : <span />}

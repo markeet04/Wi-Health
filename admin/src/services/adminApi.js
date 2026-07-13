@@ -1,19 +1,10 @@
-import { alerts, complaints, fleetDevices, users } from '../data/appData'
-
 const TOKEN_KEY = 'wi-netra-admin-token'
 const SESSION_KEY = 'wi-netra-admin-session'
 const BASE_URL = import.meta.env.VITE_ADMIN_API_BASE_URL ?? '/api'
 
-const demoSession = {
-  accessToken: 'demo-admin-token',
-  source: 'demo',
-  user: {
-    uid: 'admin-ops',
-    name: 'Admin Ops',
-    email: 'admin@wi-netra.health',
-    role: 'admin',
-  },
-}
+// NOTE: all demo/fallback behaviour lives in the BACKEND and only activates
+// when Firebase env is missing there. The frontend never fakes a session or
+// dashboard data — a rejected login is a rejected login.
 
 async function request(path, options = {}) {
   const response = await fetch(`${BASE_URL}${path}`, {
@@ -39,6 +30,11 @@ function persistSession(session) {
   localStorage.setItem(TOKEN_KEY, session.accessToken)
 }
 
+function clearSession() {
+  localStorage.removeItem(SESSION_KEY)
+  localStorage.removeItem(TOKEN_KEY)
+}
+
 function readSession() {
   try {
     const raw = localStorage.getItem(SESSION_KEY)
@@ -48,35 +44,14 @@ function readSession() {
   }
 }
 
-function fallbackDashboard() {
-  return {
-    stats: { monitoredPatients: 4 },
-    fleetDevices,
-    users,
-    alerts,
-    complaints,
-  }
-}
-
 export async function signInAdmin({ email, password }) {
-  try {
-    const session = await request('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-    })
+  const session = await request('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  })
 
-    persistSession(session)
-    return session
-  } catch (error) {
-    const isDemoAccount = email.trim().toLowerCase() === demoSession.user.email && password.trim().length > 0
-
-    if (!isDemoAccount) {
-      throw error
-    }
-
-    persistSession(demoSession)
-    return demoSession
-  }
+  persistSession(session)
+  return session
 }
 
 export async function restoreAdminSession() {
@@ -92,18 +67,13 @@ export async function restoreAdminSession() {
     persistSession(session)
     return session
   } catch {
-    if (storedSession.accessToken === demoSession.accessToken) {
-      return storedSession
-    }
-
-    localStorage.removeItem(SESSION_KEY)
-    localStorage.removeItem(TOKEN_KEY)
+    clearSession()
     return null
   }
 }
 
 export async function fetchAdminData(accessToken) {
-  if (!accessToken) return fallbackDashboard()
+  if (!accessToken) return null
 
   try {
     return await request('/admin/dashboard', {
@@ -111,12 +81,13 @@ export async function fetchAdminData(accessToken) {
       token: accessToken,
     })
   } catch {
-    return fallbackDashboard()
+    // Surface empty states rather than fake data.
+    return null
   }
 }
 
 export async function signOutAdmin(accessToken) {
-  if (accessToken && accessToken !== demoSession.accessToken) {
+  if (accessToken) {
     try {
       await request('/auth/logout', {
         method: 'POST',
@@ -127,6 +98,5 @@ export async function signOutAdmin(accessToken) {
     }
   }
 
-  localStorage.removeItem(SESSION_KEY)
-  localStorage.removeItem(TOKEN_KEY)
+  clearSession()
 }

@@ -59,7 +59,7 @@ function App() {
     const urgentAlerts = alerts.filter((alert) => alert.severity === 'Urgent' && alert.status !== 'Resolved').length
 
     return [
-      { label: 'Monitored Patients', value: String(dashboard?.stats?.monitoredPatients ?? 4) },
+      { label: 'Monitored Patients', value: String(dashboard?.stats?.monitoredPatients ?? 0) },
       { label: 'Devices Online', value: String(online) },
       { label: 'Devices Offline', value: String(offline) },
       { label: 'Active Urgent Alerts', value: String(urgentAlerts) },
