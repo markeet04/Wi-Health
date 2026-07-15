@@ -133,6 +133,12 @@ android/key.properties
 android/app/debug/
 android/app/profile/
 android/app/release/
+# Eclipse/ADT-style build output dir some toolchains generate under
+# android/app/ — has been seen carrying a stray copy of google-services.json,
+# so exclude it same as any other build artifact. Wildcard prefix so it
+# matches regardless of which layer's android/ dir it appears under
+# (mobile/android/app/bin, or a bare android/app/bin at repo root).
+**/android/app/bin/
 # Build artifacts
 *.apk
 *.aab
@@ -206,3 +212,10 @@ validation/data/*
 !database.rules.json      # Firebase Realtime DB security rules (no keys inside)
 !firestore.rules
 !storage.rules
+
+# Module 2 validation reporting output — analysis charts/tables (not raw
+# capture dumps, those stay excluded above): kept so the team/reviewers can
+# see findings in the repo without re-running captures.
+!validation/data/charts/
+!validation/data/charts/*.png
+!validation/data/module2_session_log.csv
