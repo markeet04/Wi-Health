@@ -1,0 +1,146 @@
+.admin-users-page {
+  gap: 1rem;
+}
+
+.users-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.users-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.pill {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.85rem;
+  color: #d8e4f4;
+}
+
+.name-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.name-cell span {
+  color: #9db0cf;
+  font-size: 0.85rem;
+}
+
+.table-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.create-btn,
+.delete-btn {
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 140ms ease, box-shadow 140ms ease, background-color 140ms ease,
+    border-color 140ms ease;
+}
+
+.create-btn {
+  border: 1px solid #9fc39f;
+  background: #dcefd9;
+  color: #23472a;
+}
+
+.delete-btn {
+  border: 1px solid #e0a6a6;
+  background: #ffe8e8;
+  color: #7a1f1f;
+}
+
+.create-btn:hover,
+.delete-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 18px rgba(31, 49, 38, 0.06);
+}
+
+.form-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.form-message {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #b8d0f0;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(29, 43, 36, 0.24);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 20;
+}
+
+.modal-card {
+  width: min(520px, 100%);
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 1.25rem;
+  box-shadow: 0 18px 42px rgba(27, 44, 34, 0.12);
+  backdrop-filter: blur(12px);
+}
+
+.modal-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.modal-card__head h3,
+.modal-card .form-message {
+  color: var(--heading);
+}
+
+.confirmation-card {
+  width: min(420px, 100%);
+}
+
+.confirmation-card .hint-text {
+  margin-bottom: 1rem;
+}
+
+.modal-form {
+  gap: 0.9rem;
+}
+
+.modal-form label {
+  color: var(--muted);
+}
+
+.modal-form input,
+.modal-form select {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #ffffff;
+  color: var(--heading);
+}
+
+.hint-text {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}

@@ -86,6 +86,54 @@ export async function fetchAdminData(accessToken) {
   }
 }
 
+export async function fetchAdminUsers(accessToken) {
+  if (!accessToken) return []
+
+  try {
+    return await request('/admin/users', {
+      method: 'GET',
+      token: accessToken,
+    })
+  } catch {
+    return []
+  }
+}
+
+export async function createAdminUser(accessToken, payload) {
+  if (!accessToken) {
+    throw new Error('Admin session is required.')
+  }
+
+  return request('/admin/users', {
+    method: 'POST',
+    token: accessToken,
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function updateAdminUser(accessToken, uid, payload) {
+  if (!accessToken) {
+    throw new Error('Admin session is required.')
+  }
+
+  return request(`/admin/users/${uid}`, {
+    method: 'PATCH',
+    token: accessToken,
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function deleteAdminUser(accessToken, uid) {
+  if (!accessToken) {
+    throw new Error('Admin session is required.')
+  }
+
+  return request(`/admin/users/${uid}`, {
+    method: 'DELETE',
+    token: accessToken,
+  })
+}
+
 export async function signOutAdmin(accessToken) {
   if (accessToken) {
     try {

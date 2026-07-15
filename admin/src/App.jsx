@@ -85,6 +85,12 @@ function App() {
     }
   }
 
+  const refreshDashboard = async () => {
+    if (!session?.accessToken) return
+    const data = await fetchAdminData(session.accessToken)
+    setDashboard(data)
+  }
+
   const handleSignOut = async () => {
     await signOutAdmin(session?.accessToken)
     setSession(null)
@@ -95,7 +101,13 @@ function App() {
 
   const pageContent = {
     'Statistics / Analytics': <AdminStatisticsPage adminStats={adminStats} fleetDevices={dashboard?.fleetDevices ?? []} alerts={dashboard?.alerts ?? []} />,
-    'User Management': <AdminUsersPage users={dashboard?.users ?? []} />,
+    'User Management': <AdminUsersPage
+      users={dashboard?.users ?? []}
+      accessToken={session?.accessToken}
+      currentAdminEmail={session?.user?.email}
+      currentAdminUid={session?.user?.uid}
+      onUsersChanged={refreshDashboard}
+    />,
     Alerts: <AdminAlertsPage alerts={dashboard?.alerts ?? []} />,
     Complaints: <AdminComplaintsPage complaints={dashboard?.complaints ?? []} />,
     Settings: <AdminSettingsPage />,

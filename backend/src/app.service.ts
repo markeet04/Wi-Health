@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common'
 import crypto from 'node:crypto'
 import { applicationDefault, initializeApp, getApps, type App as FirebaseApp } from 'firebase-admin/app'
 import { getAuth } from 'firebase-admin/auth'
@@ -7,6 +7,13 @@ import { getDatabase } from 'firebase-admin/database'
 export type LoginRequest = {
   email: string
   password: string
+}
+
+export type UserMutationRequest = {
+  email: string
+  password: string
+  name: string
+  role: 'admin' | 'app_user'
 }
 
 type AdminRole = 'admin'
@@ -36,6 +43,9 @@ type DashboardResponse = {
     updated: string
   }>
   users: Array<{
+    uid?: string
+    email?: string
+    password?: string
     name: string
     role: string
     patients: string
@@ -71,6 +81,60 @@ const demoSession: AdminSession = {
   },
 }
 
+type DemoUserRecord = {
+  uid: string
+  email: string
+  name: string
+  role: 'admin' | 'app_user'
+  password: string
+  patients: string
+  devices: string
+  status: string
+}
+
+const demoUsersSeed: DemoUserRecord[] = [
+  {
+    uid: 'demo-anita',
+    email: 'anita@wi-health.local',
+    name: 'Anita Rao',
+    role: 'app_user',
+    password: 'demo-password',
+    patients: '2 linked',
+    devices: 'WH-2101, WH-2102',
+    status: 'Active',
+  },
+  {
+    uid: 'demo-mohan',
+    email: 'mohan@wi-health.local',
+    name: 'Mohan Iyer',
+    role: 'app_user',
+    password: 'demo-password',
+    patients: '1 linked',
+    devices: 'WH-2104',
+    status: 'Active',
+  },
+  {
+    uid: 'demo-admin',
+    email: 'admin@wi-netra.health',
+    name: 'Admin Ops',
+    role: 'admin',
+    password: 'demo-password',
+    patients: '-',
+    devices: 'All devices',
+    status: 'Active',
+  },
+  {
+    uid: 'demo-leela',
+    email: 'leela@wi-health.local',
+    name: 'Leela Das',
+    role: 'app_user',
+    password: 'demo-password',
+    patients: '1 linked',
+    devices: 'WH-2103',
+    status: 'Pending verification',
+  },
+]
+
 const demoDashboard: DashboardResponse = {
   stats: { monitoredPatients: 4 },
   fleetDevices: [
@@ -80,10 +144,10 @@ const demoDashboard: DashboardResponse = {
     { id: 'WH-2104', patient: 'Patient D', status: 'Online', health: 'Warning', updated: '35s ago' },
   ],
   users: [
-    { name: 'Anita Rao', role: 'App User', patients: '2 linked', devices: 'WH-2101, WH-2102', status: 'Active' },
-    { name: 'Mohan Iyer', role: 'App User', patients: '1 linked', devices: 'WH-2104', status: 'Active' },
-    { name: 'Admin Ops', role: 'Admin', patients: '-', devices: 'All devices', status: 'Active' },
-    { name: 'Leela Das', role: 'App User', patients: '1 linked', devices: 'WH-2103', status: 'Pending verification' },
+    { uid: 'demo-anita', email: 'anita@wi-health.local', name: 'Anita Rao', role: 'App User', patients: '2 linked', devices: 'WH-2101, WH-2102', status: 'Active' },
+    { uid: 'demo-mohan', email: 'mohan@wi-health.local', name: 'Mohan Iyer', role: 'App User', patients: '1 linked', devices: 'WH-2104', status: 'Active' },
+    { uid: 'demo-admin', email: 'admin@wi-netra.health', name: 'Admin Ops', role: 'Admin', patients: '-', devices: 'All devices', status: 'Active' },
+    { uid: 'demo-leela', email: 'leela@wi-health.local', name: 'Leela Das', role: 'App User', patients: '1 linked', devices: 'WH-2103', status: 'Pending verification' },
   ],
   alerts: [
     { time: '11:12 AM', patient: 'Patient D', device: 'WH-2104', anomaly: 'Tachypnea', severity: 'Urgent', status: 'Open' },
@@ -102,6 +166,7 @@ const demoDashboard: DashboardResponse = {
 export class AppService {
   private readonly sessions = new Map<string, AdminSession>()
   private readonly firebaseApp = this.initFirebaseApp()
+  private readonly demoUsers = new Map<string, DemoUserRecord>(demoUsersSeed.map((user) => [user.uid, user]))
   private readonly demoEmail = process.env.ADMIN_DEMO_EMAIL ?? demoSession.user.email
   private readonly demoPassword = process.env.ADMIN_DEMO_PASSWORD ?? 'demo-password'
   private readonly adminEmailAllowlist = (process.env.ADMIN_EMAIL_ALLOWLIST ?? this.demoEmail)
@@ -170,11 +235,236 @@ export class AppService {
     }
 
     if (!this.firebaseEnabled()) {
-      return demoDashboard
+      return this.buildDemoDashboard()
     }
 
-    const realDashboard = await this.loadFirebaseDashboard().catch(() => demoDashboard)
+    const realDashboard = await this.loadFirebaseDashboard().catch(() => this.buildDemoDashboard())
     return realDashboard
+  }
+
+  async listUsers(accessToken: string): Promise<DashboardResponse['users']> {
+    const session = await this.restoreSession(accessToken)
+    if (session.user.role !== 'admin') {
+      throw new ForbiddenException('Admin access required.')
+    }
+
+    if (!this.firebaseEnabled()) {
+      return this.buildDemoDashboard().users
+    }
+
+    const dashboard = await this.loadFirebaseDashboard().catch(() => this.buildDemoDashboard())
+    return dashboard.users
+  }
+
+  async createUser(accessToken: string, body: UserMutationRequest) {
+    const session = await this.restoreSession(accessToken)
+    if (session.user.role !== 'admin') {
+      throw new ForbiddenException('Admin access required.')
+    }
+
+    const email = body.email?.trim().toLowerCase()
+    const password = body.password?.trim()
+    const name = body.name?.trim()
+    const role: 'admin' | 'app_user' = body.role === 'admin' ? 'admin' : 'app_user'
+
+    if (!email || !name || !password) {
+      throw new BadRequestException('Email, password, name, and role are required.')
+    }
+
+    const passwordError = this.validatePassword(password)
+    if (passwordError) {
+      throw new BadRequestException(passwordError)
+    }
+
+    if (this.firebaseEnabled()) {
+      const firebaseApp = this.firebaseApp
+      if (!firebaseApp) {
+        throw new BadRequestException('Firebase is not configured.')
+      }
+
+      let authUser
+      try {
+        authUser = await getAuth(firebaseApp).createUser({
+          email,
+          password,
+          displayName: name,
+        })
+      } catch (error) {
+        throw new BadRequestException(this.normalizeAuthError(error))
+      }
+
+      await getDatabase(firebaseApp)
+        .ref(`users/${authUser.uid}`)
+        .set({
+          profile: {
+            name,
+            email,
+            createdAt: Date.now(),
+          },
+          role,
+          devices: {},
+          settings: {
+            pushEnabled: true,
+            urgentOnly: false,
+            soundEnabled: true,
+          },
+        })
+
+      await getAuth(firebaseApp).setCustomUserClaims(authUser.uid, { role }).catch(() => undefined)
+
+      return this.formatDashboardUser({
+        uid: authUser.uid,
+        email,
+        name,
+        role,
+        password,
+        patients: role === 'admin' ? '-' : '0 linked',
+        devices: role === 'admin' ? 'All devices' : '-',
+        status: 'Active',
+      })
+    }
+
+    const existing = Array.from(this.demoUsers.values()).find((user) => user.email === email)
+    if (existing) {
+      throw new BadRequestException('That email already exists.')
+    }
+
+    const user: DemoUserRecord = {
+      uid: `demo-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      email,
+      name,
+      role,
+      password,
+      patients: role === 'admin' ? '-' : '0 linked',
+      devices: role === 'admin' ? 'All devices' : '-',
+      status: 'Active',
+    }
+
+    this.demoUsers.set(user.uid, user)
+    return this.formatDashboardUser(user)
+  }
+
+  async updateUser(accessToken: string, uid: string, body: Partial<UserMutationRequest>) {
+    const session = await this.restoreSession(accessToken)
+    if (session.user.role !== 'admin') {
+      throw new ForbiddenException('Admin access required.')
+    }
+
+    const email = body.email?.trim().toLowerCase() || undefined
+    const password = body.password?.trim() || undefined
+    const name = body.name?.trim() || undefined
+    const role = body.role === 'admin' ? 'admin' : body.role === 'app_user' ? 'app_user' : undefined
+
+    if (!uid) {
+      throw new BadRequestException('User id is required.')
+    }
+
+    if (password) {
+      const passwordError = this.validatePassword(password)
+      if (passwordError) {
+        throw new BadRequestException(passwordError)
+      }
+    }
+
+    if (this.firebaseEnabled()) {
+      const firebaseApp = this.firebaseApp
+      if (!firebaseApp) {
+        throw new BadRequestException('Firebase is not configured.')
+      }
+
+      const auth = getAuth(firebaseApp)
+      const db = getDatabase(firebaseApp)
+      const current = await auth.getUser(uid).catch(() => null)
+      if (!current) {
+        throw new BadRequestException('User was not found.')
+      }
+
+      try {
+        await auth.updateUser(uid, {
+          email: email ?? current.email,
+          displayName: name ?? current.displayName,
+          password,
+        })
+      } catch (error) {
+        throw new BadRequestException(this.normalizeAuthError(error))
+      }
+
+      const nextProfile = {
+        profile: {
+          name: name ?? current.displayName ?? current.email,
+          email: email ?? current.email,
+          createdAt: Date.now(),
+        },
+      }
+
+      if (role) {
+        await db.ref(`users/${uid}`).update({
+          ...nextProfile,
+          role,
+        })
+        await auth.setCustomUserClaims(uid, { role }).catch(() => undefined)
+      } else {
+        await db.ref(`users/${uid}`).update(nextProfile)
+      }
+
+      const nextRole = role ?? (String(current.customClaims?.role ?? 'app_user') === 'admin' ? 'admin' : 'app_user')
+
+      return this.formatDashboardUser({
+        uid,
+        email: email ?? current.email ?? '',
+        name: name ?? current.displayName ?? current.email ?? 'User',
+        role: nextRole,
+        password: password ?? '',
+        patients: nextRole === 'admin' ? '-' : '0 linked',
+        devices: nextRole === 'admin' ? 'All devices' : '-',
+        status: 'Active',
+      })
+    }
+
+    const existing = this.demoUsers.get(uid)
+    if (!existing) {
+      throw new BadRequestException('User was not found.')
+    }
+
+    const nextRole = role ?? existing.role
+
+    const nextUser: DemoUserRecord = {
+      ...existing,
+      email: email ?? existing.email,
+      name: name ?? existing.name,
+      role: nextRole,
+      password: password ?? existing.password,
+      patients: nextRole === 'admin' ? '-' : existing.patients || '0 linked',
+      devices: nextRole === 'admin' ? 'All devices' : existing.devices || '-',
+    }
+
+    this.demoUsers.set(uid, nextUser)
+    return this.formatDashboardUser(nextUser)
+  }
+
+  async deleteUser(accessToken: string, uid: string) {
+    const session = await this.restoreSession(accessToken)
+    if (session.user.role !== 'admin') {
+      throw new ForbiddenException('Admin access required.')
+    }
+
+    if (this.firebaseEnabled()) {
+      const firebaseApp = this.firebaseApp
+      if (!firebaseApp) {
+        throw new BadRequestException('Firebase is not configured.')
+      }
+
+      await getAuth(firebaseApp).deleteUser(uid).catch(() => undefined)
+      await getDatabase(firebaseApp).ref(`users/${uid}`).remove().catch(() => undefined)
+      return { ok: true }
+    }
+
+    if (!this.demoUsers.has(uid)) {
+      throw new BadRequestException('User was not found.')
+    }
+
+    this.demoUsers.delete(uid)
+    return { ok: true }
   }
 
   private firebaseEnabled() {
@@ -310,9 +600,60 @@ export class AppService {
     }
   }
 
+  private buildDemoDashboard(): DashboardResponse {
+    const users = Array.from(this.demoUsers.values()).map((user) => this.formatDashboardUser(user))
+
+    return {
+      ...demoDashboard,
+      stats: {
+        monitoredPatients: users.filter((user) => user.role === 'App User').length,
+      },
+      users,
+    }
+  }
+
+  private validatePassword(password: string) {
+    if (password.length < 8) {
+      return 'Password must be at least 8 characters long.'
+    }
+
+    if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/\d/.test(password)) {
+      return 'Password must include uppercase, lowercase, and a number.'
+    }
+
+    return ''
+  }
+
+  private normalizeAuthError(error: unknown) {
+    if (error && typeof error === 'object' && 'code' in error) {
+      const errorCode = String((error as { code?: string }).code ?? '')
+      if (errorCode === 'auth/email-already-exists') {
+        return 'The email address is already in use by another account.'
+      }
+      if (errorCode === 'auth/weak-password') {
+        return 'Password must be at least 8 characters long and include uppercase, lowercase, and a number.'
+      }
+    }
+
+    return 'Unable to update user account.'
+  }
+
+  private formatDashboardUser(user: DemoUserRecord) {
+    return {
+      uid: user.uid,
+      email: user.email,
+      password: user.password,
+      name: user.name,
+      role: user.role === 'admin' ? 'Admin' : 'App User',
+      patients: user.patients,
+      devices: user.devices,
+      status: user.status,
+    }
+  }
+
   private async loadFirebaseDashboard(): Promise<DashboardResponse> {
     if (!this.firebaseApp) {
-      return demoDashboard
+      return this.buildDemoDashboard()
     }
 
     const database = getDatabase(this.firebaseApp)
@@ -341,7 +682,7 @@ export class AppService {
 
   private normalizeUsers(rawUsers: unknown) {
     if (!rawUsers || typeof rawUsers !== 'object') {
-      return demoDashboard.users
+      return this.buildDemoDashboard().users
     }
 
     const entries = Object.entries(rawUsers as Record<string, unknown>)
@@ -352,6 +693,8 @@ export class AppService {
       const deviceIds = Object.keys((user.devices as Record<string, unknown>) ?? {})
 
       return {
+        uid,
+        email: String(profile.email ?? uid),
         name: String(profile.name ?? uid),
         role,
         patients: role === 'Admin' ? '-' : `${deviceIds.length} linked`,

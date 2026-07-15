@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Headers, Post, UnauthorizedException } from '@nestjs/common'
-import { AppService, type LoginRequest } from './app.service'
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, UnauthorizedException } from '@nestjs/common'
+import { AppService, type LoginRequest, type UserMutationRequest } from './app.service'
 
 function bearerToken(authorization?: string) {
   if (!authorization) return ''
@@ -50,5 +50,45 @@ export class AppController {
     }
 
     return this.appService.getDashboard(token)
+  }
+
+  @Get('admin/users')
+  listUsers(@Headers('authorization') authorization?: string) {
+    const token = bearerToken(authorization)
+    if (!token) {
+      throw new UnauthorizedException('Missing bearer token.')
+    }
+
+    return this.appService.listUsers(token)
+  }
+
+  @Post('admin/users')
+  createUser(@Body() body: UserMutationRequest, @Headers('authorization') authorization?: string) {
+    const token = bearerToken(authorization)
+    if (!token) {
+      throw new UnauthorizedException('Missing bearer token.')
+    }
+
+    return this.appService.createUser(token, body)
+  }
+
+  @Patch('admin/users/:uid')
+  updateUser(@Param('uid') uid: string, @Body() body: UserMutationRequest, @Headers('authorization') authorization?: string) {
+    const token = bearerToken(authorization)
+    if (!token) {
+      throw new UnauthorizedException('Missing bearer token.')
+    }
+
+    return this.appService.updateUser(token, uid, body)
+  }
+
+  @Delete('admin/users/:uid')
+  deleteUser(@Param('uid') uid: string, @Headers('authorization') authorization?: string) {
+    const token = bearerToken(authorization)
+    if (!token) {
+      throw new UnauthorizedException('Missing bearer token.')
+    }
+
+    return this.appService.deleteUser(token, uid)
   }
 }
