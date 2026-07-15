@@ -1,0 +1,17 @@
+session_num,filename,geometry_setup,distance_ft,posture,chest_orientation_field,total_packets,bpm_fft,bpm_autocorr,bpm_median,confidence,methods_agree,ground_truth_bpm,abs_error_bpm
+1,breath_20260714_170923_qasims_room_1ft_qasim,"1ft sitting, PERPENDICULAR (accidental)",1.0,sitting,perpendicular,8182,9.52,10.53,10.02,0.082,True,,
+2,breath_20260714_172510_room_a_1ft_qasim,"1ft sitting, FACING (behind RX, axis-aligned)",1.0,sitting,facing,8180,13.18,12.24,12.71,0.559,True,,
+3,breath_20260714_172956_a_2ft_qasim,"2ft sitting, facing",2.0,sitting,facing,8169,16.99,16.22,16.6,0.113,True,,
+4,breath_20260714_173526_a_4ft_qasim,"4ft sitting, facing (corrected from mislabeled 3ft)",4.0,sitting,facing,8136,10.11,10.17,10.14,0.505,True,,
+5,breath_20260714_174022_a_3ft_qasim,"3ft sitting, facing",3.0,sitting,facing,8176,10.25,10.71,10.48,0.515,True,,
+6,breath_20260714_174621_a_5ft_qasim,"5ft sitting, facing",5.0,sitting,facing,8171,10.55,10.53,10.54,0.632,True,,
+7,breath_20260714_175830_a_3ft_qasim,"3ft RECLINED, facing",3.0,reclined,facing,8171,10.69,10.34,10.52,0.469,True,,
+8,breath_20260714_182116_a_3ft_qasim,"3ft LYING flat on back, chest to ceiling (failed)",3.0,lying,perpendicular,8165,11.57,19.35,15.46,-0.015,False,,
+9,breath_20260714_182422_a_3ft_qaasim,"3ft LYING on side, chest toward boards",3.0,lying,facing,8180,9.96,9.38,9.67,0.413,True,,
+10,breath_20260714_183613_a_3ft_qasim,"3ft sitting, turned 90deg (side to TX)",3.0,sitting,90 degrees,8183,15.23,12.0,13.62,0.098,False,,
+11,breath_20260714_184217_a_3ft_qasim,"3ft sitting, BESIDE line chest square-on 90deg (textbook, failed)",3.0,sitting,facing,8149,11.28,20.69,15.98,-0.269,False,,
+12,breath_20260714_205107_a_3ft_qasim,"Ground truth #1 (90s, facing, behind RX)",3.0,sitting,facing,8176,10.11,10.0,10.05,0.617,True,10.7,0.65
+13,breath_20260714_205422_a_3ft_qasim,"Ground truth #2 (60s, facing, behind RX)",3.0,sitting,facing,5454,10.69,11.11,10.9,0.327,True,12.0,1.1
+14,breath_20260714_205733_a_3ft_qasim,"Ground truth #3 (60s, facing, behind RX)",3.0,sitting,facing,5456,14.36,14.29,14.32,0.72,True,14.0,0.32
+15,breath_20260714_210304_a_3ft_qasim,"Ground truth #4 (60s, fast breathing, facing)",3.0,sitting,facing,5450,20.65,21.43,21.04,0.315,True,20.0,1.04
+16,breath_20260714_210520_a_3ft_qasim,"Ground truth #5 (60s, slow breathing, facing)",3.0,sitting,facing,5445,8.94,8.7,8.82,0.372,True,8.0,0.82
