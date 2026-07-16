@@ -1,6 +1,18 @@
 import './AdminStatisticsPage.css'
 
 function AdminStatisticsPage({ adminStats, fleetDevices, alerts }) {
+  const anomalyCountMap = alerts.reduce((accumulator, alert) => {
+    const key = alert.anomaly
+    accumulator[key] = (accumulator[key] ?? 0) + 1
+    return accumulator
+  }, {})
+
+  const trendItems = Object.entries(anomalyCountMap)
+    .map(([label, count]) => ({ label, count }))
+    .sort((left, right) => right.count - left.count)
+
+  const maxCount = Math.max(...trendItems.map((item) => item.count), 1)
+
   return (
     <section className="page-grid admin-statistics-page page-fade">
       <div className="card card-span-2">
@@ -18,9 +30,16 @@ function AdminStatisticsPage({ adminStats, fleetDevices, alerts }) {
       <div className="card">
         <h2>Anomaly Trend (Today)</h2>
         <div className="trend-list">
-          <div><span>Tachypnea</span><div className="bar"><i style={{ width: '68%' }} /></div></div>
-          <div><span>Bradypnea</span><div className="bar"><i style={{ width: '34%' }} /></div></div>
-          <div><span>No valid breathing</span><div className="bar"><i style={{ width: '46%' }} /></div></div>
+          {trendItems.length === 0 ? (
+            <p className="muted">No live anomaly data is available yet.</p>
+          ) : (
+            trendItems.map((item) => (
+              <div key={item.label}>
+                <span>{item.label}</span>
+                <div className="bar"><i style={{ width: `${Math.max(8, (item.count / maxCount) * 100)}%` }} /></div>
+              </div>
+            ))
+          )}
         </div>
       </div>
 

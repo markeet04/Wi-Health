@@ -70,6 +70,19 @@ type DashboardResponse = {
   }>
 }
 
+export type AdminSettingsResponse = {
+  alertThresholds: {
+    tachypneaBpm: number
+    bradypneaBpm: number
+    apneaTriggerSeconds: number
+  }
+  defaultRoleForNewInvite: 'app_user' | 'admin'
+  requireEmailVerification: boolean
+  passwordResetWindowMinutes: number
+  refreshIntervalSeconds: number
+  landingPagePreference: string
+}
+
 const demoSession: AdminSession = {
   accessToken: 'demo-admin-token',
   source: 'demo',
@@ -92,81 +105,105 @@ type DemoUserRecord = {
   status: string
 }
 
-const demoUsersSeed: DemoUserRecord[] = [
-  {
-    uid: 'demo-anita',
-    email: 'anita@wi-health.local',
-    name: 'Anita Rao',
-    role: 'app_user',
-    password: 'demo-password',
-    patients: '2 linked',
-    devices: 'WH-2101, WH-2102',
-    status: 'Active',
-  },
-  {
-    uid: 'demo-mohan',
-    email: 'mohan@wi-health.local',
-    name: 'Mohan Iyer',
-    role: 'app_user',
-    password: 'demo-password',
-    patients: '1 linked',
-    devices: 'WH-2104',
-    status: 'Active',
-  },
-  {
-    uid: 'demo-admin',
-    email: 'admin@wi-netra.health',
-    name: 'Admin Ops',
-    role: 'admin',
-    password: 'demo-password',
-    patients: '-',
-    devices: 'All devices',
-    status: 'Active',
-  },
-  {
-    uid: 'demo-leela',
-    email: 'leela@wi-health.local',
-    name: 'Leela Das',
-    role: 'app_user',
-    password: 'demo-password',
-    patients: '1 linked',
-    devices: 'WH-2103',
-    status: 'Pending verification',
-  },
-]
-
-const demoDashboard: DashboardResponse = {
-  stats: { monitoredPatients: 4 },
-  fleetDevices: [
-    { id: 'WH-2101', patient: 'Patient A', status: 'Online', health: 'Good', updated: '10s ago' },
-    { id: 'WH-2102', patient: 'Patient B', status: 'Online', health: 'Good', updated: '16s ago' },
-    { id: 'WH-2103', patient: 'Patient C', status: 'Offline', health: 'Needs check', updated: '8m ago' },
-    { id: 'WH-2104', patient: 'Patient D', status: 'Online', health: 'Warning', updated: '35s ago' },
-  ],
+// ============================================================
+// SEED DATA — REMOVE ONCE ESP32 HARDWARE INTEGRATION IS LIVE.
+// This is the ONLY fallback data in the backend. Once real
+// devices are writing to /devices, /alerts, /complaints in
+// RTDB (see shared/contracts/device-live-schema.json), delete
+// this entire block and the firebaseEnabled() fallback branches
+// that reference it in getDashboard()/getSettings(), then
+// getDashboard() should throw or return empty state instead of
+// silently substituting demo data.
+// ============================================================
+export const SEED_DATA = {
   users: [
-    { uid: 'demo-anita', email: 'anita@wi-health.local', name: 'Anita Rao', role: 'App User', patients: '2 linked', devices: 'WH-2101, WH-2102', status: 'Active' },
-    { uid: 'demo-mohan', email: 'mohan@wi-health.local', name: 'Mohan Iyer', role: 'App User', patients: '1 linked', devices: 'WH-2104', status: 'Active' },
-    { uid: 'demo-admin', email: 'admin@wi-netra.health', name: 'Admin Ops', role: 'Admin', patients: '-', devices: 'All devices', status: 'Active' },
-    { uid: 'demo-leela', email: 'leela@wi-health.local', name: 'Leela Das', role: 'App User', patients: '1 linked', devices: 'WH-2103', status: 'Pending verification' },
-  ],
-  alerts: [
-    { time: '11:12 AM', patient: 'Patient D', device: 'WH-2104', anomaly: 'Tachypnea', severity: 'Urgent', status: 'Open' },
-    { time: '10:50 AM', patient: 'Patient B', device: 'WH-2102', anomaly: 'Bradypnea', severity: 'Info', status: 'Acknowledged' },
-    { time: '09:41 AM', patient: 'Patient C', device: 'WH-2103', anomaly: 'No valid breathing', severity: 'Urgent', status: 'In review' },
-    { time: '09:08 AM', patient: 'Patient A', device: 'WH-2101', anomaly: 'Tachypnea', severity: 'Info', status: 'Resolved' },
-  ],
-  complaints: [
-    { id: 'CMP-102', user: 'Anita Rao', patient: 'Patient A', issue: 'Frequent disconnect alerts', status: 'Open', submitted: 'Today, 10:02 AM' },
-    { id: 'CMP-101', user: 'Leela Das', patient: 'Patient C', issue: 'Pairing failed after restart', status: 'In-progress', submitted: 'Today, 08:45 AM' },
-    { id: 'CMP-097', user: 'Mohan Iyer', patient: 'Patient D', issue: 'Delayed notifications', status: 'Resolved', submitted: 'Yesterday, 07:38 PM' },
-  ],
+    {
+      uid: 'demo-anita',
+      email: 'anita@wi-health.local',
+      name: 'Anita Rao',
+      role: 'app_user',
+      password: 'demo-password',
+      patients: '2 linked',
+      devices: 'WH-2101, WH-2102',
+      status: 'Active',
+    },
+    {
+      uid: 'demo-mohan',
+      email: 'mohan@wi-health.local',
+      name: 'Mohan Iyer',
+      role: 'app_user',
+      password: 'demo-password',
+      patients: '1 linked',
+      devices: 'WH-2104',
+      status: 'Active',
+    },
+    {
+      uid: 'demo-admin',
+      email: 'admin@wi-netra.health',
+      name: 'Admin Ops',
+      role: 'admin',
+      password: 'demo-password',
+      patients: '-',
+      devices: 'All devices',
+      status: 'Active',
+    },
+    {
+      uid: 'demo-leela',
+      email: 'leela@wi-health.local',
+      name: 'Leela Das',
+      role: 'app_user',
+      password: 'demo-password',
+      patients: '1 linked',
+      devices: 'WH-2103',
+      status: 'Pending verification',
+    },
+  ] as DemoUserRecord[],
+  dashboard: {
+    stats: { monitoredPatients: 4 },
+    fleetDevices: [
+      { id: 'WH-2101', patient: 'Patient A', status: 'Online', health: 'Good', updated: '10s ago' },
+      { id: 'WH-2102', patient: 'Patient B', status: 'Online', health: 'Good', updated: '16s ago' },
+      { id: 'WH-2103', patient: 'Patient C', status: 'Offline', health: 'Needs check', updated: '8m ago' },
+      { id: 'WH-2104', patient: 'Patient D', status: 'Online', health: 'Warning', updated: '35s ago' },
+    ],
+    users: [
+      { uid: 'demo-anita', email: 'anita@wi-health.local', name: 'Anita Rao', role: 'App User', patients: '2 linked', devices: 'WH-2101, WH-2102', status: 'Active' },
+      { uid: 'demo-mohan', email: 'mohan@wi-health.local', name: 'Mohan Iyer', role: 'App User', patients: '1 linked', devices: 'WH-2104', status: 'Active' },
+      { uid: 'demo-admin', email: 'admin@wi-netra.health', name: 'Admin Ops', role: 'Admin', patients: '-', devices: 'All devices', status: 'Active' },
+      { uid: 'demo-leela', email: 'leela@wi-health.local', name: 'Leela Das', role: 'App User', patients: '1 linked', devices: 'WH-2103', status: 'Pending verification' },
+    ],
+    alerts: [
+      { time: '11:12 AM', patient: 'Patient D', device: 'WH-2104', anomaly: 'Tachypnea', severity: 'Urgent', status: 'Open' },
+      { time: '10:50 AM', patient: 'Patient B', device: 'WH-2102', anomaly: 'Bradypnea', severity: 'Info', status: 'Acknowledged' },
+      { time: '09:41 AM', patient: 'Patient C', device: 'WH-2103', anomaly: 'No valid breathing', severity: 'Urgent', status: 'In review' },
+      { time: '09:08 AM', patient: 'Patient A', device: 'WH-2101', anomaly: 'Tachypnea', severity: 'Info', status: 'Resolved' },
+    ],
+    complaints: [
+      { id: 'CMP-102', user: 'Anita Rao', patient: 'Patient A', issue: 'Frequent disconnect alerts', status: 'Open', submitted: 'Today, 10:02 AM' },
+      { id: 'CMP-101', user: 'Leela Das', patient: 'Patient C', issue: 'Pairing failed after restart', status: 'In-progress', submitted: 'Today, 08:45 AM' },
+      { id: 'CMP-097', user: 'Mohan Iyer', patient: 'Patient D', issue: 'Delayed notifications', status: 'Resolved', submitted: 'Yesterday, 07:38 PM' },
+    ],
+  } satisfies DashboardResponse,
+  settings: {
+    alertThresholds: {
+      tachypneaBpm: 22,
+      bradypneaBpm: 10,
+      apneaTriggerSeconds: 20,
+    },
+    defaultRoleForNewInvite: 'app_user',
+    requireEmailVerification: true,
+    passwordResetWindowMinutes: 30,
+    refreshIntervalSeconds: 5,
+    landingPagePreference: 'Statistics / Analytics',
+  } satisfies AdminSettingsResponse,
 }
 
 @Injectable()
 export class AppService {
   private readonly sessions = new Map<string, AdminSession>()
   private readonly firebaseApp = this.initFirebaseApp()
-  private readonly demoUsers = new Map<string, DemoUserRecord>(demoUsersSeed.map((user) => [user.uid, user]))
+  private readonly demoUsers = new Map<string, DemoUserRecord>(SEED_DATA.users.map((user) => [user.uid, user]))
+  private readonly demoSettings: AdminSettingsResponse = this.cloneSettings(SEED_DATA.settings)
   private readonly demoEmail = process.env.ADMIN_DEMO_EMAIL ?? demoSession.user.email
   private readonly demoPassword = process.env.ADMIN_DEMO_PASSWORD ?? 'demo-password'
   private readonly adminEmailAllowlist = (process.env.ADMIN_EMAIL_ALLOWLIST ?? this.demoEmail)
@@ -240,6 +277,46 @@ export class AppService {
 
     const realDashboard = await this.loadFirebaseDashboard().catch(() => this.buildDemoDashboard())
     return realDashboard
+  }
+
+  async getSettings(accessToken: string): Promise<AdminSettingsResponse> {
+    const session = await this.restoreSession(accessToken)
+    if (session.user.role !== 'admin') {
+      throw new ForbiddenException('Admin access required.')
+    }
+
+    if (!this.firebaseEnabled()) {
+      return this.buildDemoSettings()
+    }
+
+    return this.loadFirebaseSettings().catch(() => this.buildDemoSettings())
+  }
+
+  async updateSettings(accessToken: string, body: Partial<AdminSettingsResponse>) {
+    const session = await this.restoreSession(accessToken)
+    if (session.user.role !== 'admin') {
+      throw new ForbiddenException('Admin access required.')
+    }
+
+    const nextSettings = this.normalizeSettings(body)
+
+    if (!this.firebaseEnabled()) {
+      this.demoSettings.alertThresholds = nextSettings.alertThresholds
+      this.demoSettings.defaultRoleForNewInvite = nextSettings.defaultRoleForNewInvite
+      this.demoSettings.requireEmailVerification = nextSettings.requireEmailVerification
+      this.demoSettings.passwordResetWindowMinutes = nextSettings.passwordResetWindowMinutes
+      this.demoSettings.refreshIntervalSeconds = nextSettings.refreshIntervalSeconds
+      this.demoSettings.landingPagePreference = nextSettings.landingPagePreference
+      return this.buildDemoSettings()
+    }
+
+    const firebaseApp = this.firebaseApp
+    if (!firebaseApp) {
+      throw new BadRequestException('Firebase is not configured.')
+    }
+
+    await getDatabase(firebaseApp).ref('settings').set(nextSettings)
+    return nextSettings
   }
 
   async listUsers(accessToken: string): Promise<DashboardResponse['users']> {
@@ -604,12 +681,16 @@ export class AppService {
     const users = Array.from(this.demoUsers.values()).map((user) => this.formatDashboardUser(user))
 
     return {
-      ...demoDashboard,
+      ...this.cloneSettings(SEED_DATA.dashboard as DashboardResponse),
       stats: {
         monitoredPatients: users.filter((user) => user.role === 'App User').length,
       },
       users,
     }
+  }
+
+  private buildDemoSettings(): AdminSettingsResponse {
+    return this.cloneSettings(this.demoSettings)
   }
 
   private validatePassword(password: string) {
@@ -651,6 +732,15 @@ export class AppService {
     }
   }
 
+  private async loadFirebaseSettings(): Promise<AdminSettingsResponse> {
+    if (!this.firebaseApp) {
+      return this.buildDemoSettings()
+    }
+
+    const rawSettings = await getDatabase(this.firebaseApp).ref('settings').get().catch(() => null)
+    return this.normalizeSettings(rawSettings?.val())
+  }
+
   private async loadFirebaseDashboard(): Promise<DashboardResponse> {
     if (!this.firebaseApp) {
       return this.buildDemoDashboard()
@@ -680,6 +770,30 @@ export class AppService {
     }
   }
 
+  private normalizeSettings(rawSettings: unknown): AdminSettingsResponse {
+    const fallback = this.buildDemoSettings()
+    if (!rawSettings || typeof rawSettings !== 'object') {
+      return fallback
+    }
+
+    const settings = rawSettings as Record<string, unknown>
+    const thresholds = settings.alertThresholds as Record<string, unknown> | undefined
+
+    return {
+      alertThresholds: {
+        tachypneaBpm: Number(thresholds?.tachypneaBpm ?? fallback.alertThresholds.tachypneaBpm),
+        bradypneaBpm: Number(thresholds?.bradypneaBpm ?? fallback.alertThresholds.bradypneaBpm),
+        apneaTriggerSeconds: Number(thresholds?.apneaTriggerSeconds ?? fallback.alertThresholds.apneaTriggerSeconds),
+      },
+      defaultRoleForNewInvite:
+        settings.defaultRoleForNewInvite === 'admin' ? 'admin' : 'app_user',
+      requireEmailVerification: settings.requireEmailVerification === false ? false : true,
+      passwordResetWindowMinutes: Number(settings.passwordResetWindowMinutes ?? fallback.passwordResetWindowMinutes),
+      refreshIntervalSeconds: Number(settings.refreshIntervalSeconds ?? fallback.refreshIntervalSeconds),
+      landingPagePreference: String(settings.landingPagePreference ?? fallback.landingPagePreference),
+    }
+  }
+
   private normalizeUsers(rawUsers: unknown) {
     if (!rawUsers || typeof rawUsers !== 'object') {
       return this.buildDemoDashboard().users
@@ -706,7 +820,7 @@ export class AppService {
 
   private normalizeDevices(rawDevices: unknown, users: DashboardResponse['users']) {
     if (!rawDevices || typeof rawDevices !== 'object') {
-      return demoDashboard.fleetDevices
+      return SEED_DATA.dashboard.fleetDevices
     }
 
     return Object.entries(rawDevices as Record<string, unknown>).map(([deviceId, value]) => {
@@ -732,7 +846,7 @@ export class AppService {
 
   private normalizeAlerts(rawAlerts: unknown, users: DashboardResponse['users']) {
     if (!rawAlerts || typeof rawAlerts !== 'object') {
-      return demoDashboard.alerts
+      return SEED_DATA.dashboard.alerts
     }
 
     const alerts: DashboardResponse['alerts'] = []
@@ -753,12 +867,12 @@ export class AppService {
       }
     }
 
-    return alerts.length ? alerts : demoDashboard.alerts
+    return alerts.length ? alerts : SEED_DATA.dashboard.alerts
   }
 
   private normalizeComplaints(rawComplaints: unknown, users: DashboardResponse['users']) {
     if (!rawComplaints || typeof rawComplaints !== 'object') {
-      return demoDashboard.complaints
+      return SEED_DATA.dashboard.complaints
     }
 
     return Object.entries(rawComplaints as Record<string, unknown>).map(([complaintId, value]) => {
@@ -773,6 +887,10 @@ export class AppService {
         submitted: this.formatTimestamp(complaint.createdAt ?? complaint.submittedAt),
       }
     })
+  }
+
+  private cloneSettings<T>(value: T): T {
+    return JSON.parse(JSON.stringify(value))
   }
 
   private formatAge(timestamp: unknown) {

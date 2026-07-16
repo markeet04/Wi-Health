@@ -86,6 +86,31 @@ export async function fetchAdminData(accessToken) {
   }
 }
 
+export async function fetchAdminSettings(accessToken) {
+  if (!accessToken) return null
+
+  try {
+    return await request('/admin/settings', {
+      method: 'GET',
+      token: accessToken,
+    })
+  } catch {
+    return null
+  }
+}
+
+export async function updateAdminSettings(accessToken, payload) {
+  if (!accessToken) {
+    throw new Error('Admin session is required.')
+  }
+
+  return request('/admin/settings', {
+    method: 'PATCH',
+    token: accessToken,
+    body: JSON.stringify(payload),
+  })
+}
+
 export async function fetchAdminUsers(accessToken) {
   if (!accessToken) return []
 

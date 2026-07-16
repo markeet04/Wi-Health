@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, UnauthorizedException } from '@nestjs/common'
-import { AppService, type LoginRequest, type UserMutationRequest } from './app.service'
+import { AppService, type AdminSettingsResponse, type LoginRequest, type UserMutationRequest } from './app.service'
 
 function bearerToken(authorization?: string) {
   if (!authorization) return ''
@@ -50,6 +50,26 @@ export class AppController {
     }
 
     return this.appService.getDashboard(token)
+  }
+
+  @Get('admin/settings')
+  settings(@Headers('authorization') authorization?: string) {
+    const token = bearerToken(authorization)
+    if (!token) {
+      throw new UnauthorizedException('Missing bearer token.')
+    }
+
+    return this.appService.getSettings(token)
+  }
+
+  @Patch('admin/settings')
+  updateSettings(@Body() body: Partial<AdminSettingsResponse>, @Headers('authorization') authorization?: string) {
+    const token = bearerToken(authorization)
+    if (!token) {
+      throw new UnauthorizedException('Missing bearer token.')
+    }
+
+    return this.appService.updateSettings(token, body)
   }
 
   @Get('admin/users')

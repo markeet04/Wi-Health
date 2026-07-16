@@ -2,6 +2,18 @@
   "$comment": "Wi-Health Realtime Database structure contract. Types use TS-ish notation; 'epochMs' = integer milliseconds since epoch (server time). Enforced by cloud/database.rules.json.",
   "version": 1,
   "tree": {
+    "settings": {
+      "alertThresholds": {
+        "tachypneaBpm": "number",
+        "bradypneaBpm": "number",
+        "apneaTriggerSeconds": "number"
+      },
+      "defaultRoleForNewInvite": "'app_user' | 'admin'",
+      "requireEmailVerification": "boolean",
+      "passwordResetWindowMinutes": "number",
+      "refreshIntervalSeconds": "number",
+      "landingPagePreference": "string"
+    },
     "users": {
       "$uid": {
         "profile": {
@@ -88,6 +100,7 @@
     }
   },
   "accessSummary": {
+    "settings": "admin-only read/write for primary admin panel preferences",
     "users/$uid": "read/write self; admin read/write all; role + devices subtrees admin-write only",
     "devices/$deviceId/live|sessions|health": "write: that device's token only; read: linked owner + admin",
     "devices/$deviceId/meta": "write: admin; read: linked owner + admin",

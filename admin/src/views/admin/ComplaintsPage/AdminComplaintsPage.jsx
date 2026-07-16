@@ -1,6 +1,8 @@
 import './AdminComplaintsPage.css'
 
 function AdminComplaintsPage({ complaints }) {
+  const selectedComplaint = complaints[0] ?? null
+
   return (
     <section className="page-grid admin-complaints-page page-fade">
       <div className="card card-span-2">
@@ -28,21 +30,28 @@ function AdminComplaintsPage({ complaints }) {
 
       <div className="card">
         <h2>Response Panel</h2>
-        <form className="stacked-form">
-          <label>
-            Complaint ID
-            <input type="text" defaultValue="CMP-102" />
-          </label>
-          <label>
-            Update Status
-            <select defaultValue="In-progress"><option>Open</option><option>In-progress</option><option>Resolved</option></select>
-          </label>
-          <label>
-            Response
-            <textarea rows={4} defaultValue="We are checking device connectivity logs and will update shortly." />
-          </label>
-          <button type="button">Submit Update</button>
-        </form>
+        {selectedComplaint ? (
+          <div className="stacked-form">
+            <label>
+              Complaint ID
+              <input type="text" readOnly value={selectedComplaint.id} />
+            </label>
+            <label>
+              Status
+              <input type="text" readOnly value={selectedComplaint.status} />
+            </label>
+            <label>
+              App User
+              <input type="text" readOnly value={selectedComplaint.user} />
+            </label>
+            <label>
+              Issue
+              <textarea rows={4} readOnly value={selectedComplaint.issue} />
+            </label>
+          </div>
+        ) : (
+          <p className="muted">No complaint data is available yet.</p>
+        )}
       </div>
     </section>
   )

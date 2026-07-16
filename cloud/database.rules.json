@@ -73,6 +73,11 @@
       }
     },
 
+    "settings": {
+      ".read": "auth != null && auth.token.role === 'admin'",
+      ".write": "auth != null && auth.token.role === 'admin'"
+    },
+
     "complaints": {
       ".read": "auth != null && auth.token.role === 'admin'",
       ".indexOn": ["uid", "status"],

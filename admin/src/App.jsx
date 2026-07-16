@@ -110,7 +110,7 @@ function App() {
     />,
     Alerts: <AdminAlertsPage alerts={dashboard?.alerts ?? []} />,
     Complaints: <AdminComplaintsPage complaints={dashboard?.complaints ?? []} />,
-    Settings: <AdminSettingsPage />,
+    Settings: <AdminSettingsPage accessToken={session?.accessToken} />,
   }
 
   if (isBooting) {

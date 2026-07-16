@@ -1,0 +1,55 @@
+.admin-settings-page {
+  display: block;
+}
+
+.settings-layout {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+  width: 100%;
+}
+
+.settings-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.settings-form-content {
+  height: 100%;
+}
+
+.settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.settings-status,
+.settings-message {
+  margin: 0;
+  font-size: 0.84rem;
+}
+
+.settings-status {
+  color: var(--muted);
+}
+
+.settings-message.success-message {
+  color: #24633f;
+  font-weight: 600;
+}
+
+.settings-message.error-message {
+  color: #a43f2b;
+  font-weight: 600;
+}
+
+@media (max-width: 980px) {
+  .settings-layout {
+    grid-template-columns: 1fr;
+  }
+}
