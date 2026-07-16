@@ -59,6 +59,8 @@ def main() -> int:
         f"  BPM (autocorr):  {result['bpm_autocorr']:.2f}  (conf {result['confidence_autocorr']:.2f})\n"
         f"  BPM (median):    {result['bpm_median']:.2f}\n"
         f"  methods agree:   {result['agreement']}\n"
+        f"  status:          {result['status']}"
+        f"{'' if result['valid'] else '  <-- DO NOT TRUST'}\n"
     )
     sys.stdout.flush()
 
@@ -129,7 +131,8 @@ def main() -> int:
 
     fig.suptitle(
         f"{csv_path.stem} — BPM median {result['bpm_median']:.1f}  "
-        f"(agree={result['agreement']}, conf={result['confidence']:.2f})",
+        f"(agree={result['agreement']}, conf={result['confidence']:.2f}, "
+        f"status={result['status']})",
         fontsize=11,
     )
     fig.tight_layout()

@@ -49,6 +49,12 @@ DEFAULTS: dict[str, Any] = {
     "min_bpm": 6.0,
     "max_bpm": 30.0,
     "agreement_threshold_bpm": 2.0,
+    # Module 2 ground-truth validation (2026-07-14, n=5, 8-21 bpm) found
+    # confidence strongly predicts accuracy (r=-0.95): sessions below this
+    # threshold are the ones where FFT/autocorrelation diverged and the
+    # reported bpm was untrustworthy. Below this, extract_breathing_rate
+    # reports status="low_confidence" instead of a bare number.
+    "min_confidence": 0.3,
 }
 
 
@@ -232,6 +238,23 @@ def extract_breathing_rate(
     else:
         bpm_median, agreement, confidence = float("nan"), False, 0.0
 
+    # Gate the output: a window with low confidence and/or FFT/autocorr
+    # disagreement is not trustworthy (see Module 2 finding above). Report
+    # that explicitly via `status` rather than silently emitting a number a
+    # caller has no reason to distrust. bpm_median is still returned
+    # (never NaN'd out here) so callers that only look at bpm_median keep
+    # working, but they should check `status` before trusting it.
+    min_confidence = float(cfg["min_confidence"])
+    if not (valid_fft or valid_ac):
+        status = "no_valid_breathing"
+    elif not agreement:
+        status = "disagreement"
+    elif confidence < min_confidence:
+        status = "low_confidence"
+    else:
+        status = "ok"
+    valid = status == "ok"
+
     # Spectrum for plotting / reporting.
     x = wave_bp.astype(np.float64) - float(np.mean(wave_bp))
     nfft = int(2 ** np.ceil(np.log2(max(x.size * 4, 128))))
@@ -246,6 +269,8 @@ def extract_breathing_rate(
         "confidence_fft": float(conf_fft),
         "confidence_autocorr": float(conf_ac),
         "agreement": bool(agreement),
+        "status": status,
+        "valid": bool(valid),
         "respiratory_waveform": wave_bp,
         "waveform_unfiltered": wave,
         "spectrum": spec,

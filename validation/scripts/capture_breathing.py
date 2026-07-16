@@ -206,12 +206,14 @@ def main() -> int:
         sys.stdout.flush()
         try:
             r = extract_breathing_rate(csv_path)
+            status_note = "" if r["status"] == "ok" else "  <-- DO NOT TRUST, see status"
             sys.stdout.write(
                 f"  BPM (FFT):         {r['bpm_fft']:.1f}\n"
                 f"  BPM (autocorr):    {r['bpm_autocorr']:.1f}\n"
-                f"  BPM (median):      {r['bpm_median']:.1f}\n"
+                f"  BPM (median):      {r['bpm_median']:.1f}{status_note}\n"
                 f"  confidence:        {r['confidence']:.2f}\n"
                 f"  methods agree:     {r['agreement']}\n"
+                f"  status:            {r['status']}\n"
             )
             sys.stdout.flush()
             result["bpm_fft"] = r["bpm_fft"]
@@ -219,6 +221,8 @@ def main() -> int:
             result["bpm_median"] = r["bpm_median"]
             result["confidence"] = r["confidence"]
             result["agreement"] = r["agreement"]
+            result["status"] = r["status"]
+            result["valid"] = r["valid"]
             result["selected_pairs"] = r["selected_pairs"]
             result["sample_rate_hz"] = r["sample_rate_hz"]
         except Exception as e:
