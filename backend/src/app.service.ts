@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException, Injectable, InternalServerErrorException, UnauthorizedException } from '@nestjs/common'
 import crypto from 'node:crypto'
 import { applicationDefault, initializeApp, getApps, type App as FirebaseApp } from 'firebase-admin/app'
 import { getAuth } from 'firebase-admin/auth'
@@ -275,8 +275,13 @@ export class AppService {
       return this.buildDemoDashboard()
     }
 
-    const realDashboard = await this.loadFirebaseDashboard().catch(() => this.buildDemoDashboard())
-    return realDashboard
+    try {
+      return await this.loadFirebaseDashboard()
+    } catch (error) {
+      throw new InternalServerErrorException(
+        error instanceof Error ? error.message : 'Unable to load dashboard from Firebase.',
+      )
+    }
   }
 
   async getSettings(accessToken: string): Promise<AdminSettingsResponse> {
@@ -289,7 +294,13 @@ export class AppService {
       return this.buildDemoSettings()
     }
 
-    return this.loadFirebaseSettings().catch(() => this.buildDemoSettings())
+    try {
+      return await this.loadFirebaseSettings()
+    } catch (error) {
+      throw new InternalServerErrorException(
+        error instanceof Error ? error.message : 'Unable to load settings from Firebase.',
+      )
+    }
   }
 
   async updateSettings(accessToken: string, body: Partial<AdminSettingsResponse>) {
@@ -329,8 +340,14 @@ export class AppService {
       return this.buildDemoDashboard().users
     }
 
-    const dashboard = await this.loadFirebaseDashboard().catch(() => this.buildDemoDashboard())
-    return dashboard.users
+    try {
+      const dashboard = await this.loadFirebaseDashboard()
+      return dashboard.users
+    } catch (error) {
+      throw new InternalServerErrorException(
+        error instanceof Error ? error.message : 'Unable to load users from Firebase.',
+      )
+    }
   }
 
   async createUser(accessToken: string, body: UserMutationRequest) {
@@ -756,7 +773,7 @@ export class AppService {
 
     const userRecords = this.normalizeUsers(usersSnap.val())
     const deviceRecords = this.normalizeDevices(devicesSnap.val(), userRecords)
-    const alertRecords = this.normalizeAlerts(alertsSnap.val(), userRecords)
+    const alertRecords = this.normalizeAlerts(alertsSnap.val(), userRecords, devicesSnap.val())
     const complaintRecords = this.normalizeComplaints(complaintsSnap.val(), userRecords)
 
     return {
@@ -796,7 +813,7 @@ export class AppService {
 
   private normalizeUsers(rawUsers: unknown) {
     if (!rawUsers || typeof rawUsers !== 'object') {
-      return this.buildDemoDashboard().users
+      return [] as DashboardResponse['users']
     }
 
     const entries = Object.entries(rawUsers as Record<string, unknown>)
@@ -820,18 +837,19 @@ export class AppService {
 
   private normalizeDevices(rawDevices: unknown, users: DashboardResponse['users']) {
     if (!rawDevices || typeof rawDevices !== 'object') {
-      return SEED_DATA.dashboard.fleetDevices
+      return [] as DashboardResponse['fleetDevices']
     }
 
     return Object.entries(rawDevices as Record<string, unknown>).map(([deviceId, value]) => {
       const device = (value as Record<string, unknown>) ?? {}
       const meta = (device.meta as Record<string, unknown>) ?? {}
       const live = (device.live as Record<string, unknown>) ?? {}
-      const linkedUser = users.find((user) => user.devices.includes(deviceId))
+      const ownerUid = String(meta.ownerUid ?? '')
+      const linkedUser = users.find((user) => user.devices.includes(deviceId)) ?? users.find((user) => user.uid === ownerUid)
 
       return {
         id: deviceId,
-        patient: linkedUser?.name ?? 'Unassigned',
+        patient: String(meta.patientName ?? linkedUser?.name ?? 'Unassigned'),
         status: String(live.status ?? 'offline').toLowerCase() === 'ok' ? 'Online' : 'Offline',
         health:
           String(live.status ?? '').toLowerCase() === 'no_breathing'
@@ -844,21 +862,36 @@ export class AppService {
     })
   }
 
-  private normalizeAlerts(rawAlerts: unknown, users: DashboardResponse['users']) {
+  private normalizeAlerts(rawAlerts: unknown, users: DashboardResponse['users'], rawDevices?: unknown) {
     if (!rawAlerts || typeof rawAlerts !== 'object') {
-      return SEED_DATA.dashboard.alerts
+      return [] as DashboardResponse['alerts']
+    }
+
+    const devicesById = new Map<string, { ownerUid?: string; patientName?: string }>()
+    if (rawDevices && typeof rawDevices === 'object') {
+      for (const [deviceId, value] of Object.entries(rawDevices as Record<string, unknown>)) {
+        const device = (value as Record<string, unknown>) ?? {}
+        const meta = (device.meta as Record<string, unknown>) ?? {}
+        devicesById.set(deviceId, {
+          ownerUid: String(meta.ownerUid ?? ''),
+          patientName: String(meta.patientName ?? ''),
+        })
+      }
     }
 
     const alerts: DashboardResponse['alerts'] = []
     for (const [deviceId, deviceAlerts] of Object.entries(rawAlerts as Record<string, unknown>)) {
       if (!deviceAlerts || typeof deviceAlerts !== 'object') continue
 
-      const linkedUser = users.find((user) => user.devices.includes(deviceId))
+      const linkedUser =
+        users.find((user) => user.devices.includes(deviceId)) ??
+        users.find((user) => user.uid === devicesById.get(deviceId)?.ownerUid)
+      const deviceMeta = devicesById.get(deviceId)
       for (const [alertId, value] of Object.entries(deviceAlerts as Record<string, unknown>)) {
         const alert = (value as Record<string, unknown>) ?? {}
         alerts.push({
-          time: this.formatTimestamp(alert.createdAt ?? alert.updatedAt),
-          patient: linkedUser?.name ?? 'Unknown',
+          time: this.formatTimestamp(alert.raisedAt ?? alert.createdAt ?? alert.updatedAt),
+          patient: String(deviceMeta?.patientName ?? linkedUser?.name ?? 'Unknown'),
           device: deviceId,
           anomaly: String(alert.type ?? alert.anomaly ?? alertId),
           severity: String(alert.severity ?? 'Info').replace(/^./, (char) => char.toUpperCase()),
@@ -867,21 +900,21 @@ export class AppService {
       }
     }
 
-    return alerts.length ? alerts : SEED_DATA.dashboard.alerts
+    return alerts.length ? alerts : [] as DashboardResponse['alerts']
   }
 
   private normalizeComplaints(rawComplaints: unknown, users: DashboardResponse['users']) {
     if (!rawComplaints || typeof rawComplaints !== 'object') {
-      return SEED_DATA.dashboard.complaints
+      return [] as DashboardResponse['complaints']
     }
 
     return Object.entries(rawComplaints as Record<string, unknown>).map(([complaintId, value]) => {
       const complaint = (value as Record<string, unknown>) ?? {}
-      const linkedUser = users.find((user) => user.name === String(complaint.user ?? complaint.uid ?? ''))
+      const linkedUser = users.find((user) => user.uid === String(complaint.uid ?? ''))
       return {
         id: complaintId,
         user: String(complaint.user ?? linkedUser?.name ?? complaint.uid ?? 'Unknown'),
-        patient: String(complaint.patient ?? 'Unknown'),
+        patient: String(complaint.patient ?? linkedUser?.name ?? 'Unknown'),
         issue: String(complaint.issue ?? complaint.subject ?? complaint.message ?? 'No details provided'),
         status: this.prettyStatus(String(complaint.status ?? 'open')),
         submitted: this.formatTimestamp(complaint.createdAt ?? complaint.submittedAt),
