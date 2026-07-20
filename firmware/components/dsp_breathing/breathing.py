@@ -31,6 +31,7 @@ from .cscr import (
     select_subcarrier_pairs,
     cscr_to_respiratory_waveform,
 )
+from .motion import MotionGate
 
 
 DEFAULTS: dict[str, Any] = {
@@ -176,38 +177,29 @@ def bpm_from_autocorrelation(
     return freq * 60.0, conf
 
 
-def extract_breathing_rate(
-    csv_path: str | Path,
-    config: dict | None = None,
+def _estimate_from_complex(
+    H_u: np.ndarray,
+    fs: float,
+    band: tuple[float, float],
+    cfg: dict[str, Any],
+    pairs: list[tuple[int, int]] | None = None,
 ) -> dict:
-    """Full breathing detection pipeline; returns a diagnostic dict."""
-    cfg = {**DEFAULTS, **(config or {})}
-    fs = float(cfg["target_sample_rate_hz"])
-    band = (float(cfg["bandpass_low_hz"]), float(cfg["bandpass_high_hz"]))
+    """Core estimator: resampled complex CSI matrix -> full diagnostic dict.
 
-    H_raw, timestamps, load_meta = load_complex_session(csv_path)
-
-    H_active, kept_idx = drop_null_subcarriers_complex(
-        H_raw, threshold=float(cfg["null_subcarrier_threshold"])
-    )
-    if H_active.shape[1] < 4:
-        raise ValueError(
-            f"only {H_active.shape[1]} active subcarriers after null-drop; "
-            "check gain / link"
+    Shared by extract_breathing_rate (whole-file batch) and
+    sliding_window_estimate (per-window streaming) so both paths run the
+    exact same math. If `pairs` is given, subcarrier selection is skipped
+    (a live/streaming caller reuses the pairs chosen on a prior window
+    instead of re-running select_subcarrier_pairs on every stride, which
+    is the expensive step).
+    """
+    if pairs is None:
+        pairs = select_subcarrier_pairs(
+            H_u,
+            num_pairs=int(cfg["num_pairs"]),
+            breathing_band=band,
+            sample_rate=fs,
         )
-
-    grid, H_u = _resample_complex_uniform(timestamps, H_active, fs)
-    if H_u.shape[0] < int(fs * 10):
-        raise ValueError(
-            f"resampled capture too short ({H_u.shape[0]} samples at {fs} Hz)"
-        )
-
-    pairs = select_subcarrier_pairs(
-        H_u,
-        num_pairs=int(cfg["num_pairs"]),
-        breathing_band=band,
-        sample_rate=fs,
-    )
     if not pairs:
         raise ValueError("no viable subcarrier pairs — CSCR selection failed")
 
@@ -275,11 +267,204 @@ def extract_breathing_rate(
         "waveform_unfiltered": wave,
         "spectrum": spec,
         "spectrum_freqs": freqs,
-        "timestamps": grid,
         "selected_pairs": pairs,
-        "kept_subcarriers": kept_idx.tolist(),
         "sample_rate_hz": fs,
         "band_hz": band,
-        "load_meta": load_meta,
-        "config": cfg,
     }
+
+
+def extract_breathing_rate(
+    csv_path: str | Path,
+    config: dict | None = None,
+) -> dict:
+    """Full breathing detection pipeline; returns a diagnostic dict."""
+    cfg = {**DEFAULTS, **(config or {})}
+    fs = float(cfg["target_sample_rate_hz"])
+    band = (float(cfg["bandpass_low_hz"]), float(cfg["bandpass_high_hz"]))
+
+    H_raw, timestamps, load_meta = load_complex_session(csv_path)
+
+    H_active, kept_idx = drop_null_subcarriers_complex(
+        H_raw, threshold=float(cfg["null_subcarrier_threshold"])
+    )
+    if H_active.shape[1] < 4:
+        raise ValueError(
+            f"only {H_active.shape[1]} active subcarriers after null-drop; "
+            "check gain / link"
+        )
+
+    grid, H_u = _resample_complex_uniform(timestamps, H_active, fs)
+    if H_u.shape[0] < int(fs * 10):
+        raise ValueError(
+            f"resampled capture too short ({H_u.shape[0]} samples at {fs} Hz)"
+        )
+
+    result = _estimate_from_complex(H_u, fs, band, cfg)
+    result["timestamps"] = grid
+    result["kept_subcarriers"] = kept_idx.tolist()
+    result["load_meta"] = load_meta
+    result["config"] = cfg
+    return result
+
+
+class RollingBpmBuffer:
+    """Module 3 Phase 2.5 — smooths single-window noise with a rolling median.
+
+    Keeps the last `size` *valid* (status="ok") window estimates and reports
+    their median. A single noisy window (the kind Module 2 saw plenty of)
+    gets outvoted by its neighbors instead of standing alone as "the"
+    reading. Invalid windows (low_confidence/disagreement/no_valid_breathing)
+    are never added — they don't get to pollute the smoothed estimate, but
+    they're also not silently hidden: the caller still sees that window's
+    own status via sliding_window_estimate.
+    """
+
+    def __init__(self, size: int = 6):
+        self.size = size
+        self._buffer: list[float] = []
+
+    def push(self, bpm: float) -> None:
+        self._buffer.append(bpm)
+        if len(self._buffer) > self.size:
+            self._buffer.pop(0)
+
+    @property
+    def smoothed_bpm(self) -> float:
+        if not self._buffer:
+            return float("nan")
+        return float(np.median(self._buffer))
+
+    @property
+    def window_count(self) -> int:
+        return len(self._buffer)
+
+
+def sliding_window_estimate(
+    csv_path: str | Path,
+    config: dict | None = None,
+):
+    """Module 3 Phase 2.4/2.6 — continuous windowed estimation over one capture.
+
+    Replays a full capture as a sequence of overlapping windows
+    (window_seconds long, advancing stride_seconds at a time — the same two
+    config values the batch pipeline has always defined but never actually
+    used for anything before this), yielding one result dict per window as
+    they'd arrive in a live/streaming deployment.
+
+    Each window:
+      1. is screened by a MotionGate — a window where the subject moved is
+         yielded with status="motion_rejected" and bpm_median=nan, WITHOUT
+         running the CSCR/FFT/autocorrelation math on it (motion swamps the
+         breathing signal, so estimating through it would just manufacture
+         a confident-looking wrong number);
+      2. otherwise runs the same _estimate_from_complex core the batch
+         pipeline uses, reusing the subcarrier pairs chosen on the first
+         valid window (re-selecting them every stride would be the most
+         expensive part of the pipeline run on a needless repeat);
+      3. valid (status="ok") windows are folded into a RollingBpmBuffer;
+         every yielded dict carries the buffer's current smoothed_bpm
+         alongside that window's own raw bpm_median, so a caller can choose
+         either the instantaneous or the smoothed reading.
+
+    Yields dicts with all the keys extract_breathing_rate returns for a
+    valid window (status="ok"), plus for every window regardless of status:
+    window_index, window_start_s, window_end_s, motion_rejected,
+    motion_score, smoothed_bpm, smoothed_window_count.
+    """
+    cfg = {**DEFAULTS, **(config or {})}
+    fs = float(cfg["target_sample_rate_hz"])
+    band = (float(cfg["bandpass_low_hz"]), float(cfg["bandpass_high_hz"]))
+    window_s = float(cfg["window_seconds"])
+    stride_s = float(cfg["stride_seconds"])
+
+    H_raw, timestamps, load_meta = load_complex_session(csv_path)
+    H_active, kept_idx = drop_null_subcarriers_complex(
+        H_raw, threshold=float(cfg["null_subcarrier_threshold"])
+    )
+    if H_active.shape[1] < 4:
+        raise ValueError(
+            f"only {H_active.shape[1]} active subcarriers after null-drop; "
+            "check gain / link"
+        )
+
+    grid, H_u = _resample_complex_uniform(timestamps, H_active, fs)
+    window_samples = int(round(window_s * fs))
+    stride_samples = max(1, int(round(stride_s * fs)))
+    if H_u.shape[0] < window_samples:
+        raise ValueError(
+            f"capture ({H_u.shape[0]} samples) shorter than one window "
+            f"({window_samples} samples at {fs} Hz) — need at least "
+            f"{window_s:.0f}s of data"
+        )
+
+    motion_gate = MotionGate()
+    smoother = RollingBpmBuffer()
+    reused_pairs: list[tuple[int, int]] | None = None
+
+    window_index = 0
+    start = 0
+    while start + window_samples <= H_u.shape[0]:
+        end = start + window_samples
+        H_window = H_u[start:end]
+        t_window = grid[start:end]
+
+        is_motion, motion_score, motion_baseline = motion_gate.check(H_window)
+
+        base = {
+            "window_index": window_index,
+            "window_start_s": float(t_window[0]),
+            "window_end_s": float(t_window[-1]),
+            "motion_rejected": bool(is_motion),
+            "motion_score": motion_score,
+            "motion_baseline": motion_baseline,
+            "smoothed_bpm": smoother.smoothed_bpm,
+            "smoothed_window_count": smoother.window_count,
+        }
+
+        if is_motion:
+            base.update({
+                "status": "motion_rejected",
+                "bpm_fft": float("nan"),
+                "bpm_autocorr": float("nan"),
+                "bpm_median": float("nan"),
+                "confidence": 0.0,
+                "agreement": False,
+                "valid": False,
+            })
+            yield base
+            window_index += 1
+            start += stride_samples
+            continue
+
+        try:
+            result = _estimate_from_complex(
+                H_window, fs, band, cfg, pairs=reused_pairs
+            )
+        except ValueError:
+            base.update({
+                "status": "no_valid_breathing",
+                "bpm_fft": float("nan"),
+                "bpm_autocorr": float("nan"),
+                "bpm_median": float("nan"),
+                "confidence": 0.0,
+                "agreement": False,
+                "valid": False,
+            })
+            yield base
+            window_index += 1
+            start += stride_samples
+            continue
+
+        if reused_pairs is None:
+            reused_pairs = result["selected_pairs"]
+
+        if result["status"] == "ok":
+            smoother.push(result["bpm_median"])
+
+        base.update(result)
+        base["smoothed_bpm"] = smoother.smoothed_bpm
+        base["smoothed_window_count"] = smoother.window_count
+        yield base
+
+        window_index += 1
+        start += stride_samples
