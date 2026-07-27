@@ -68,6 +68,27 @@ class Patient {
       name.split(' ').take(2).map((w) => w[0]).join().toUpperCase();
 
   bool get hasValidBreathing => status == BreathStatus.normal && online;
+
+  factory Patient.empty() => Patient(
+        id: 'none',
+        name: 'No Devices Linked',
+        relation: '',
+        room: '',
+        deviceName: '',
+        deviceId: '',
+        online: false,
+        signalQuality: 0,
+        confidence: 0,
+        bpm: 0,
+        status: BreathStatus.lowSignal,
+        normalLow: 0,
+        normalHigh: 0,
+        trend: List.filled(12, 0),
+        nightlyAvg: List.filled(7, 0),
+        distribution: List.filled(7, 0),
+        firmware: '',
+        lastSync: 'never',
+      );
 }
 
 class AnomalyAlert {
@@ -134,6 +155,22 @@ class ActivityEvent {
   final String kind; // alert | signal | session | system
 }
 
+class ComplaintMessage {
+  ComplaintMessage({
+    required this.id,
+    required this.senderUid,
+    required this.senderRole,
+    required this.text,
+    required this.sentAt,
+  });
+
+  final String id;
+  final String senderUid;
+  final String senderRole;
+  final String text;
+  final int sentAt;
+}
+
 class Complaint {
   Complaint({
     required this.id,
@@ -142,6 +179,7 @@ class Complaint {
     required this.description,
     required this.status,
     required this.date,
+    this.messages = const [],
   });
 
   final String id;
@@ -150,6 +188,27 @@ class Complaint {
   final String description;
   final ComplaintStatus status;
   final String date;
+  final List<ComplaintMessage> messages;
+
+  Complaint copyWith({
+    String? id,
+    String? category,
+    String? subject,
+    String? description,
+    ComplaintStatus? status,
+    String? date,
+    List<ComplaintMessage>? messages,
+  }) {
+    return Complaint(
+      id: id ?? this.id,
+      category: category ?? this.category,
+      subject: subject ?? this.subject,
+      description: description ?? this.description,
+      status: status ?? this.status,
+      date: date ?? this.date,
+      messages: messages ?? this.messages,
+    );
+  }
 }
 
 /// App-wide state (hardcoded data for now — Firebase later).
@@ -162,18 +221,125 @@ class AppState extends ChangeNotifier {
     required this.complaints,
   });
 
+  AppState.empty()
+      : patients = [],
+        alerts = [],
+        sessions = [],
+        activity = [],
+        complaints = [];
+
   final List<Patient> patients;
   final List<AnomalyAlert> alerts;
   final List<SessionLog> sessions;
   final List<ActivityEvent> activity;
   final List<Complaint> complaints;
 
+  Future<void> Function({
+    required String category,
+    required String subject,
+    required String description,
+  })? submitComplaintHandler;
+
+  Future<void> Function(String complaintId, {required String text})? sendComplaintMessageHandler;
+  Future<void> Function(String complaintId)? resolveComplaintHandler;
+
+  /// Optional handler provided by a backend repository to persist
+  /// notification settings changes (push/urgentOnly/sound) to the server.
+  Future<void> Function(String key, Object value)? settingsUpdateHandler;
+
+  void setPatients(List<Patient> values) {
+    patients
+      ..clear()
+      ..addAll(values);
+    if (_selectedPatient >= patients.length) {
+      _selectedPatient = patients.isEmpty ? 0 : patients.length - 1;
+    }
+    notifyListeners();
+  }
+
+  void setAlerts(List<AnomalyAlert> values) {
+    alerts
+      ..clear()
+      ..addAll(values);
+    notifyListeners();
+  }
+
+  void setSessions(List<SessionLog> values) {
+    sessions
+      ..clear()
+      ..addAll(values);
+    notifyListeners();
+  }
+
+  void setActivity(List<ActivityEvent> values) {
+    activity
+      ..clear()
+      ..addAll(values);
+    notifyListeners();
+  }
+
+  void setComplaints(List<Complaint> values) {
+    complaints
+      ..clear()
+      ..addAll(values);
+    notifyListeners();
+  }
+
+  void updateComplaint(Complaint updatedComplaint) {
+    final index = complaints.indexWhere((complaint) => complaint.id == updatedComplaint.id);
+    if (index >= 0) {
+      complaints[index] = updatedComplaint;
+      notifyListeners();
+    }
+  }
+
+  void addComplaintMessage(String complaintId, ComplaintMessage message) {
+    final index = complaints.indexWhere((complaint) => complaint.id == complaintId);
+    if (index < 0) return;
+
+    final existing = complaints[index];
+    complaints[index] = existing.copyWith(messages: [...existing.messages, message]);
+    notifyListeners();
+  }
+
+  Future<void> sendComplaintMessage(String complaintId, String text) async {
+    if (sendComplaintMessageHandler != null) {
+      await sendComplaintMessageHandler!(complaintId, text: text);
+      return;
+    }
+
+    final message = ComplaintMessage(
+      id: 'local-${DateTime.now().millisecondsSinceEpoch}',
+      senderUid: userEmail,
+      senderRole: 'app_user',
+      text: text,
+      sentAt: DateTime.now().toUtc().millisecondsSinceEpoch,
+    );
+    addComplaintMessage(complaintId, message);
+  }
+
+  Future<void> resolveComplaint(String complaintId) async {
+    if (resolveComplaintHandler != null) {
+      await resolveComplaintHandler!(complaintId);
+      return;
+    }
+
+    final index = complaints.indexWhere((complaint) => complaint.id == complaintId);
+    if (index < 0) return;
+
+    final existing = complaints[index];
+    complaints[index] = existing.copyWith(status: ComplaintStatus.resolved);
+    notifyListeners();
+  }
+
   String userName = 'Qasim Majid';
   String userEmail = 'qasimmaajid04@gmail.com';
 
   int _selectedPatient = 0;
   int get selectedPatient => _selectedPatient;
-  Patient get current => patients[_selectedPatient];
+  Patient get current => patients.isNotEmpty
+      ? patients[_selectedPatient.clamp(0, patients.length - 1)]
+      : Patient.empty();
 
   void selectPatient(int index) {
     if (index == _selectedPatient) return;
@@ -233,6 +399,15 @@ class AppState extends ChangeNotifier {
     required String subject,
     required String description,
   }) {
+    if (submitComplaintHandler != null) {
+      submitComplaintHandler!(
+        category: category,
+        subject: subject,
+        description: description,
+      ).catchError((_) {});
+      return;
+    }
+
     complaints.insert(
       0,
       Complaint(
@@ -247,23 +422,40 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void addComplaint(Complaint complaint) {
+    complaints.insert(0, complaint);
+    notifyListeners();
+  }
+
   // Notification preferences (Settings screen).
   bool pushEnabled = true;
   bool urgentOnly = false;
   bool soundEnabled = true;
 
   void setPush(bool v) {
+    if (pushEnabled == v) return;
     pushEnabled = v;
+    if (settingsUpdateHandler != null) {
+      settingsUpdateHandler!('pushEnabled', v).catchError((_) {});
+    }
     notifyListeners();
   }
 
   void setUrgentOnly(bool v) {
+    if (urgentOnly == v) return;
     urgentOnly = v;
+    if (settingsUpdateHandler != null) {
+      settingsUpdateHandler!('urgentOnly', v).catchError((_) {});
+    }
     notifyListeners();
   }
 
   void setSound(bool v) {
+    if (soundEnabled == v) return;
     soundEnabled = v;
+    if (settingsUpdateHandler != null) {
+      settingsUpdateHandler!('soundEnabled', v).catchError((_) {});
+    }
     notifyListeners();
   }
 }

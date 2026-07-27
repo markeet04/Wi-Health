@@ -111,4 +111,28 @@ export class AppController {
 
     return this.appService.deleteUser(token, uid)
   }
+
+  @Post('admin/complaints/:complaintId/messages')
+  sendComplaintMessage(
+    @Param('complaintId') complaintId: string,
+    @Body() body: { text: string },
+    @Headers('authorization') authorization?: string,
+  ) {
+    const token = bearerToken(authorization)
+    if (!token) {
+      throw new UnauthorizedException('Missing bearer token.')
+    }
+
+    return this.appService.sendComplaintMessage(token, complaintId, body)
+  }
+
+  @Patch('admin/complaints/:complaintId/resolve')
+  resolveComplaint(@Param('complaintId') complaintId: string, @Headers('authorization') authorization?: string) {
+    const token = bearerToken(authorization)
+    if (!token) {
+      throw new UnauthorizedException('Missing bearer token.')
+    }
+
+    return this.appService.resolveComplaint(token, complaintId)
+  }
 }

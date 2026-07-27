@@ -160,26 +160,196 @@ class _SupportScreenState extends State<SupportScreen> {
           WiColors.greenSoft
         ),
     };
-    return SoftCard(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(c.subject,
-                    style: WiText.title.copyWith(fontSize: 14)),
-              ),
-              StatusPill(text: text, color: color, background: bg),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text('${c.category} · ${c.date}', style: WiText.caption),
-          const SizedBox(height: 8),
-          Text(c.description, style: WiText.body.copyWith(fontSize: 12.8)),
-        ],
+    return GestureDetector(
+      onTap: () => _openComplaintThread(c),
+      child: SoftCard(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(c.subject,
+                      style: WiText.title.copyWith(fontSize: 14)),
+                ),
+                StatusPill(text: text, color: color, background: bg),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text('${c.category} · ${c.date}', style: WiText.caption),
+            const SizedBox(height: 8),
+            Text(c.description, style: WiText.body.copyWith(fontSize: 12.8)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openComplaintThread(Complaint complaint) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => _ComplaintThreadDialog(
+        app: widget.app,
+        complaint: complaint,
       ),
     );
   }
 }
+
+class _ComplaintThreadDialog extends StatefulWidget {
+  const _ComplaintThreadDialog({required this.app, required this.complaint});
+
+  final AppState app;
+  final Complaint complaint;
+
+  @override
+  State<_ComplaintThreadDialog> createState() => _ComplaintThreadDialogState();
+}
+
+class _ComplaintThreadDialogState extends State<_ComplaintThreadDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      insetPadding: const EdgeInsets.all(20),
+      child: ListenableBuilder(
+        listenable: widget.app,
+        builder: (context, _) {
+          final complaint = widget.app.complaints.firstWhere(
+            (entry) => entry.id == widget.complaint.id,
+            orElse: () => widget.complaint,
+          );
+          final isResolved = complaint.status == ComplaintStatus.resolved;
+
+          return Padding(
+            padding: const EdgeInsets.all(18),
+            child: SizedBox(
+              width: 520,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          complaint.subject,
+                          style: WiText.title.copyWith(fontSize: 15),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${complaint.category} · ${complaint.description}',
+                    style: WiText.body.copyWith(fontSize: 12.8),
+                  ),
+                  const SizedBox(height: 12),
+                  if (isResolved)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: WiColors.greenSoft,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text('Resolved', style: WiText.caption.copyWith(color: WiColors.green)),
+                    )
+                  else
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: WiColors.blueSoft,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text('Open for chat', style: WiText.caption.copyWith(color: WiColors.blue)),
+                    ),
+                  const SizedBox(height: 12),
+                  Flexible(
+                    child: Container(
+                      constraints: const BoxConstraints(maxHeight: 320),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: WiColors.field),
+                      ),
+                      child: ListView(
+                        shrinkWrap: true,
+                        children: [
+                          if (complaint.messages.isEmpty)
+                            Text('No messages yet. Your support thread will appear here.', style: WiText.body)
+                          else
+                            for (final message in complaint.messages)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: message.senderRole == 'admin' ? WiColors.primary.withValues(alpha: 0.08) : WiColors.field,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        message.senderRole == 'admin' ? 'Support team' : 'You',
+                                        style: WiText.label.copyWith(fontSize: 11.5),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(message.text, style: WiText.body.copyWith(fontSize: 12.8)),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _controller,
+                    enabled: !isResolved,
+                    maxLines: 3,
+                    decoration: InputDecoration(
+                      hintText: isResolved ? 'This chat is closed.' : 'Write a message to support...',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: isResolved ? null : () async {
+                            final text = _controller.text.trim();
+                            if (text.isEmpty) return;
+                            await widget.app.sendComplaintMessage(complaint.id, text);
+                            _controller.clear();
+                          },
+                          child: const Text('Send'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+

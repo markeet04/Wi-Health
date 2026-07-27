@@ -31,6 +31,30 @@ type AdminSession = {
   user: AdminUser
 }
 
+type ComplaintMessage = {
+  id: string
+  senderUid: string
+  senderRole: 'app_user' | 'admin'
+  text: string
+  sentAt: number
+}
+
+type DashboardComplaint = {
+  id: string
+  user: string
+  patient: string
+  issue: string
+  status: string
+  submitted: string
+  category?: string
+  subject?: string
+  description?: string
+  uid?: string
+  createdAt?: number
+  updatedAt?: number
+  messages?: ComplaintMessage[]
+}
+
 type DashboardResponse = {
   stats: {
     monitoredPatients: number
@@ -60,14 +84,7 @@ type DashboardResponse = {
     severity: string
     status: string
   }>
-  complaints: Array<{
-    id: string
-    user: string
-    patient: string
-    issue: string
-    status: string
-    submitted: string
-  }>
+  complaints: DashboardComplaint[]
 }
 
 export type AdminSettingsResponse = {
@@ -561,6 +578,69 @@ export class AppService {
     return { ok: true }
   }
 
+  async sendComplaintMessage(accessToken: string, complaintId: string, body: { text?: string }) {
+    const session = await this.restoreSession(accessToken)
+    if (session.user.role !== 'admin') {
+      throw new ForbiddenException('Admin access required.')
+    }
+
+    const text = body.text?.trim()
+    if (!complaintId || !text) {
+      throw new BadRequestException('Complaint id and message text are required.')
+    }
+
+    if (!this.firebaseEnabled()) {
+      return { ok: true, complaintId }
+    }
+
+    const firebaseApp = this.firebaseApp
+    if (!firebaseApp) {
+      throw new BadRequestException('Firebase is not configured.')
+    }
+
+    const messageRef = getDatabase(firebaseApp).ref(`complaints/${complaintId}/messages`).push()
+    await messageRef.set({
+      senderUid: session.user.uid,
+      senderRole: 'admin',
+      text,
+      sentAt: Date.now(),
+    })
+
+    await getDatabase(firebaseApp).ref(`complaints/${complaintId}`).update({
+      status: 'in_progress',
+      updatedAt: Date.now(),
+    })
+
+    return { ok: true, complaintId }
+  }
+
+  async resolveComplaint(accessToken: string, complaintId: string) {
+    const session = await this.restoreSession(accessToken)
+    if (session.user.role !== 'admin') {
+      throw new ForbiddenException('Admin access required.')
+    }
+
+    if (!complaintId) {
+      throw new BadRequestException('Complaint id is required.')
+    }
+
+    if (!this.firebaseEnabled()) {
+      return { ok: true, complaintId }
+    }
+
+    const firebaseApp = this.firebaseApp
+    if (!firebaseApp) {
+      throw new BadRequestException('Firebase is not configured.')
+    }
+
+    await getDatabase(firebaseApp).ref(`complaints/${complaintId}`).update({
+      status: 'resolved',
+      updatedAt: Date.now(),
+    })
+
+    return { ok: true, complaintId }
+  }
+
   private firebaseEnabled() {
     return Boolean(this.firebaseApp && process.env.FIREBASE_WEB_API_KEY)
   }
@@ -911,15 +991,45 @@ export class AppService {
     return Object.entries(rawComplaints as Record<string, unknown>).map(([complaintId, value]) => {
       const complaint = (value as Record<string, unknown>) ?? {}
       const linkedUser = users.find((user) => user.uid === String(complaint.uid ?? ''))
+      const createdAt = typeof complaint.createdAt === 'number' ? complaint.createdAt : undefined
+      const updatedAt = typeof complaint.updatedAt === 'number' ? complaint.updatedAt : createdAt
       return {
         id: complaintId,
         user: String(complaint.user ?? linkedUser?.name ?? complaint.uid ?? 'Unknown'),
         patient: String(complaint.patient ?? linkedUser?.name ?? 'Unknown'),
         issue: String(complaint.issue ?? complaint.subject ?? complaint.message ?? 'No details provided'),
         status: this.prettyStatus(String(complaint.status ?? 'open')),
-        submitted: this.formatTimestamp(complaint.createdAt ?? complaint.submittedAt),
+        submitted: this.formatTimestamp(createdAt ?? complaint.submittedAt),
+        category: String(complaint.category ?? 'Other'),
+        subject: String(complaint.subject ?? complaint.issue ?? 'No subject'),
+        description: String(complaint.description ?? complaint.issue ?? 'No details provided'),
+        uid: typeof complaint.uid === 'string' ? complaint.uid : '',
+        createdAt,
+        updatedAt,
+        messages: this.normalizeComplaintMessages(complaint.messages),
       }
     })
+  }
+
+  private normalizeComplaintMessages(rawMessages: unknown): ComplaintMessage[] {
+    if (!rawMessages || typeof rawMessages !== 'object') {
+      return []
+    }
+
+    return Object.entries(rawMessages as Record<string, unknown>)
+      .map(([messageId, value]) => {
+        const message = (value as Record<string, unknown>) ?? {}
+        const sentAt = typeof message.sentAt === 'number' ? message.sentAt : 0
+        return {
+          id: messageId,
+          senderUid: String(message.senderUid ?? ''),
+          senderRole: message.senderRole === 'admin' ? 'admin' : 'app_user',
+          text: String(message.text ?? ''),
+          sentAt,
+        } satisfies ComplaintMessage
+      })
+      .filter((message) => message.text.trim().length > 0)
+      .sort((left, right) => left.sentAt - right.sentAt)
   }
 
   private cloneSettings<T>(value: T): T {

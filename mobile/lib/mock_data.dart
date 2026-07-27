@@ -213,6 +213,15 @@ AppState buildMockAppState() {
           'The Wi-Health Sense 03 in the nursery goes offline for a few minutes around 2 AM most nights.',
       status: ComplaintStatus.inProgress,
       date: '2 days ago',
+      messages: [
+        ComplaintMessage(
+          id: 'm1',
+          senderUid: 'admin',
+          senderRole: 'admin',
+          text: 'We are reviewing the nightly dropouts and will follow up shortly.',
+          sentAt: DateTime.now().subtract(const Duration(hours: 12)).millisecondsSinceEpoch,
+        ),
+      ],
     ),
     Complaint(
       id: 'c2',
@@ -222,6 +231,15 @@ AppState buildMockAppState() {
           'Received an apnea alert when the room was empty. Expected the empty-room check to catch this.',
       status: ComplaintStatus.resolved,
       date: 'Last week',
+      messages: [
+        ComplaintMessage(
+          id: 'm2',
+          senderUid: 'admin',
+          senderRole: 'admin',
+          text: 'The false alert has been cleared and the ticket is resolved.',
+          sentAt: DateTime.now().subtract(const Duration(days: 7)).millisecondsSinceEpoch,
+        ),
+      ],
     ),
   ];
 

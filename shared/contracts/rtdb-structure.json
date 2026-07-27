@@ -93,7 +93,15 @@
         "subject": "string",
         "description": "string",
         "status": "'open' | 'in_progress' | 'resolved'  — transitions by admin only",
-        "adminResponse": "string | null (admin only)",
+        "messages": {
+          "$messageId": {
+            "senderUid": "string (author uid or admin uid)",
+            "senderRole": "'app_user' | 'admin'",
+            "text": "string",
+            "sentAt": "epochMs"
+          }
+        },
+        "adminResponse": "string | null (legacy; chat messages are the new model)",
         "createdAt": "epochMs",
         "updatedAt": "epochMs"
       }
@@ -105,6 +113,6 @@
     "devices/$deviceId/live|sessions|health": "write: that device's token only; read: linked owner + admin",
     "devices/$deviceId/meta": "write: admin; read: linked owner + admin",
     "alerts/$deviceId": "write: device (create) + owner/admin (acknowledge); read: linked owner + admin",
-    "complaints": "create: any authed app_user (own uid); read: author + admin; status/adminResponse: admin only"
+    "complaints": "create: any authed app_user (own uid); read: author + admin; status/admin-only transitions; messages writes by author/admin while status != resolved"
   }
 }

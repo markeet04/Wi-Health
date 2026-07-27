@@ -109,7 +109,7 @@ function App() {
       onUsersChanged={refreshDashboard}
     />,
     Alerts: <AdminAlertsPage alerts={dashboard?.alerts ?? []} />,
-    Complaints: <AdminComplaintsPage complaints={dashboard?.complaints ?? []} />,
+    Complaints: <AdminComplaintsPage complaints={dashboard?.complaints ?? []} accessToken={session?.accessToken} onComplaintsChanged={refreshDashboard} />,
     Settings: <AdminSettingsPage accessToken={session?.accessToken} />,
   }
 

@@ -22,7 +22,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return ListenableBuilder(
       listenable: app,
       builder: (context, _) {
-        final p = app.patients[_patient];
+        final safeIndex = app.patients.isEmpty
+            ? 0
+            : _patient.clamp(0, app.patients.length - 1);
+        final p = app.patients.isEmpty
+            ? Patient.empty()
+            : app.patients[safeIndex];
         final sessions =
             app.sessions.where((s) => s.patientId == p.id).toList();
         final alerts = app.alerts.where((a) => a.patientId == p.id).toList();

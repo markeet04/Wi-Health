@@ -79,13 +79,22 @@
     },
 
     "complaints": {
-      ".read": "auth != null && auth.token.role === 'admin'",
+      ".read": "auth != null && (auth.token.role === 'admin' || auth.token.role === 'app_user')",
       ".indexOn": ["uid", "status"],
       "$complaintId": {
         ".read": "auth != null && (data.child('uid').val() === auth.uid || auth.token.role === 'admin')",
         ".write": "auth != null && ((!data.exists() && newData.child('uid').val() === auth.uid && auth.token.role !== 'admin') || auth.token.role === 'admin')",
         "status": {
+          ".write": "auth != null && auth.token.role === 'admin'",
           ".validate": "newData.val() === 'open' || newData.val() === 'in_progress' || newData.val() === 'resolved'"
+        },
+        "messages": {
+          ".read": "auth != null && (data.parent().child('uid').val() === auth.uid || auth.token.role === 'admin')",
+          ".write": "auth != null && data.parent().child('status').val() !== 'resolved' && ((data.parent().child('uid').val() === auth.uid && auth.token.role !== 'admin') || auth.token.role === 'admin')",
+          "$messageId": {
+            ".write": "auth != null && !data.exists() && data.parent().parent().child('status').val() !== 'resolved' && ((auth.uid === data.parent().parent().child('uid').val() && auth.token.role !== 'admin') || auth.token.role === 'admin') && newData.child('senderUid').val() === auth.uid && newData.child('senderRole').val() === (auth.token.role === 'admin' ? 'admin' : 'app_user') && newData.hasChildren(['senderUid', 'senderRole', 'text', 'sentAt'])",
+            ".validate": "newData.child('senderUid').val() === auth.uid && (newData.child('senderRole').val() === 'app_user' || newData.child('senderRole').val() === 'admin') && newData.child('text').isString() && newData.child('text').val().length > 0 && newData.child('sentAt').isNumber()"
+          }
         },
         "adminResponse": {
           ".write": "auth != null && auth.token.role === 'admin'"

@@ -159,6 +159,29 @@ export async function deleteAdminUser(accessToken, uid) {
   })
 }
 
+export async function sendComplaintMessage(accessToken, complaintId, payload) {
+  if (!accessToken) {
+    throw new Error('Admin session is required.')
+  }
+
+  return request(`/admin/complaints/${complaintId}/messages`, {
+    method: 'POST',
+    token: accessToken,
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function resolveComplaint(accessToken, complaintId) {
+  if (!accessToken) {
+    throw new Error('Admin session is required.')
+  }
+
+  return request(`/admin/complaints/${complaintId}/resolve`, {
+    method: 'PATCH',
+    token: accessToken,
+  })
+}
+
 export async function signOutAdmin(accessToken) {
   if (accessToken) {
     try {

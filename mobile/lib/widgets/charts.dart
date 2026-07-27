@@ -97,7 +97,15 @@ class WeekBars extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final max = values.reduce((a, b) => a > b ? a : b);
+    var max = 1.0;
+    if (values.isNotEmpty) {
+      try {
+        max = values.reduce((a, b) => a > b ? a : b);
+      } catch (_) {
+        max = 1.0;
+      }
+    }
+    if (max <= 0 || !max.isFinite) max = 1.0;
     return SizedBox(
       height: height,
       child: Row(
@@ -116,7 +124,7 @@ class WeekBars extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Container(
-                    height: (height - 44) * (values[i] / max),
+                    height: (height - 44) * (max > 0 ? (values[i] / max) : 0),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         begin: Alignment.topCenter,
@@ -159,7 +167,15 @@ class DistributionBars extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final max = values.reduce((a, b) => a > b ? a : b);
+    var max = 1.0;
+    if (values.isNotEmpty) {
+      try {
+        max = values.reduce((a, b) => a > b ? a : b);
+      } catch (_) {
+        max = 1.0;
+      }
+    }
+    if (max <= 0 || !max.isFinite) max = 1.0;
     return SizedBox(
       height: height,
       child: Row(
@@ -172,7 +188,7 @@ class DistributionBars extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   Container(
-                    height: (height - 26) * (values[i] / max),
+                    height: (height - 26) * (max > 0 ? (values[i] / max) : 0),
                     decoration: BoxDecoration(
                       color: color.withValues(
                           alpha: 0.25 + 0.75 * (values[i] / max)),

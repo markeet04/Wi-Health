@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import '../app_config.dart';
 import '../auth/auth_controller.dart';
+import '../data/patient_repository.dart';
 import '../mock_data.dart';
 import '../models.dart';
 import '../theme.dart';
@@ -19,18 +21,27 @@ class ShellScreen extends StatefulWidget {
 }
 
 class _ShellScreenState extends State<ShellScreen> {
-  final AppState app = buildMockAppState();
+  final AppState app = AppState.empty();
+  PatientRepository? _repository;
   int _tab = 0;
 
   @override
   void initState() {
     super.initState();
-    // Identity comes from the auth session; patient/device data stays
-    // mocked until the Realtime Database is wired.
     final user = authController.user;
     if (user != null) {
       app.userName = user.name;
       app.userEmail = user.email;
+      if (AppConfig.useFirebase) {
+        _repository = PatientRepository(user: user, appState: app);
+      } else {
+        final mock = buildMockAppState();
+        app.setPatients(mock.patients);
+        app.setAlerts(mock.alerts);
+        app.setSessions(mock.sessions);
+        app.setActivity(mock.activity);
+        app.setComplaints(mock.complaints);
+      }
     }
   }
 
@@ -39,6 +50,12 @@ class _ShellScreenState extends State<ShellScreen> {
   void _openLive(int patientIndex) {
     app.selectPatient(patientIndex);
     setState(() => _tab = 2);
+  }
+
+  @override
+  void dispose() {
+    _repository?.dispose();
+    super.dispose();
   }
 
   @override
