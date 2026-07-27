@@ -191,6 +191,11 @@ database-debug.log
 #     an empty tracked folder via its .gitkeep, but its contents are ignored.)
 # -----------------------------------------------------------------------------
 validation/data/*
+# The live/overnight scripts write captures under validation/scripts/data/
+# and stray csi_log_*.csv into validation/scripts/ — same "raw capture, never
+# commit" rule as validation/data/ above (the original rule missed this path).
+validation/scripts/data/
+validation/scripts/csi_log_*.csv
 *.csi
 *.pcap
 *.raw
