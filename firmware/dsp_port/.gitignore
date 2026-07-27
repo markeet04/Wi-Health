@@ -1,0 +1,7 @@
+# Host build artifacts
+build/
+
+# Golden reference vectors — regenerable from a capture via
+# validation/scripts/gen_golden.py; large (~8 MB) and derived, so not tracked
+# (same "generated data stays out of the repo" rule as validation/data).
+test_vectors/
