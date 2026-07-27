@@ -180,16 +180,11 @@ class PatientRepository {
       'sentAt': ServerValue.timestamp,
     });
 
-    _appState.addComplaintMessage(
-      complaintId,
-      ComplaintMessage(
-        id: messageRef.key ?? 'local-${DateTime.now().millisecondsSinceEpoch}',
-        senderUid: _user.uid,
-        senderRole: 'app_user',
-        text: text,
-        sentAt: DateTime.now().toUtc().millisecondsSinceEpoch,
-      ),
-    );
+    // No optimistic local add: the live `_listenComplaints` onValue listener
+    // already re-delivers this message (keyed by messageRef.key) the moment
+    // the write lands, so adding it here too showed the message twice until
+    // the next full server rebuild deduped it. The listener is the single
+    // source of truth for the thread.
   }
 
   Future<void> _resolveComplaint(String complaintId) async {

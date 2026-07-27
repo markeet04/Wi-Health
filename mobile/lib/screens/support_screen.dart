@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import 'complaint_chat_screen.dart';
 
 /// Complaints & support — App Users raise complaints here; they sync to
 /// Firebase for the Admin panel's Complaints page to review and resolve.
@@ -146,22 +147,19 @@ class _SupportScreenState extends State<SupportScreen> {
     );
   }
 
+  (String, Color, Color) _statusStyle(ComplaintStatus status) => switch (status) {
+        ComplaintStatus.open => ('Open', WiColors.amber, WiColors.amberSoft),
+        ComplaintStatus.inProgress => ('In Progress', WiColors.blue, WiColors.blueSoft),
+        ComplaintStatus.resolved => ('Resolved', WiColors.green, WiColors.greenSoft),
+      };
+
   Widget _complaintCard(Complaint c) {
-    final (text, color, bg) = switch (c.status) {
-      ComplaintStatus.open => ('Open', WiColors.amber, WiColors.amberSoft),
-      ComplaintStatus.inProgress => (
-          'In Progress',
-          WiColors.blue,
-          WiColors.blueSoft
-        ),
-      ComplaintStatus.resolved => (
-          'Resolved',
-          WiColors.green,
-          WiColors.greenSoft
-        ),
-    };
+    final (text, color, bg) = _statusStyle(c.status);
+    final hasReply = c.messages.any((m) => m.senderRole == 'admin');
+    final replyCount = c.messages.where((m) => m.senderRole == 'admin').length;
+
     return GestureDetector(
-      onTap: () => _openComplaintThread(c),
+      onTap: () => _openComplaintDetail(c),
       child: SoftCard(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -179,175 +177,176 @@ class _SupportScreenState extends State<SupportScreen> {
             const SizedBox(height: 6),
             Text('${c.category} · ${c.date}', style: WiText.caption),
             const SizedBox(height: 8),
-            Text(c.description, style: WiText.body.copyWith(fontSize: 12.8)),
+            Text(c.description,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: WiText.body.copyWith(fontSize: 12.8)),
+            if (hasReply) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const Icon(Icons.mark_chat_read_rounded,
+                      size: 15, color: WiColors.primary),
+                  const SizedBox(width: 6),
+                  Text(
+                    replyCount == 1
+                        ? 'Support replied'
+                        : 'Support replied · $replyCount messages',
+                    style: WiText.caption.copyWith(
+                        color: WiColors.primary, fontWeight: FontWeight.w700),
+                  ),
+                  const Spacer(),
+                  const Icon(Icons.chevron_right_rounded,
+                      size: 18, color: WiColors.inkFaint),
+                ],
+              ),
+            ],
           ],
         ),
       ),
     );
   }
 
-  Future<void> _openComplaintThread(Complaint complaint) async {
-    await showDialog<void>(
+  /// Tap a complaint -> clean detail sheet. From there, open the full-screen
+  /// chat (foodpanda-style) to continue the conversation with support.
+  Future<void> _openComplaintDetail(Complaint complaint) async {
+    await showModalBottomSheet<void>(
       context: context,
-      builder: (dialogContext) => _ComplaintThreadDialog(
-        app: widget.app,
-        complaint: complaint,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) => ListenableBuilder(
+        listenable: widget.app,
+        builder: (context, _) {
+          final current = widget.app.complaints.firstWhere(
+            (entry) => entry.id == complaint.id,
+            orElse: () => complaint,
+          );
+          return _ComplaintDetailSheet(
+            complaint: current,
+            statusStyle: _statusStyle,
+            onOpenChat: () {
+              Navigator.of(sheetContext).pop();
+              _openChat(current.id);
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  void _openChat(String complaintId) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ComplaintChatScreen(
+          app: widget.app,
+          complaintId: complaintId,
+        ),
       ),
     );
   }
 }
 
-class _ComplaintThreadDialog extends StatefulWidget {
-  const _ComplaintThreadDialog({required this.app, required this.complaint});
+/// Minimal, clean detail sheet for a complaint. Shows the essentials and a
+/// single clear action to open the conversation.
+class _ComplaintDetailSheet extends StatelessWidget {
+  const _ComplaintDetailSheet({
+    required this.complaint,
+    required this.statusStyle,
+    required this.onOpenChat,
+  });
 
-  final AppState app;
   final Complaint complaint;
-
-  @override
-  State<_ComplaintThreadDialog> createState() => _ComplaintThreadDialogState();
-}
-
-class _ComplaintThreadDialogState extends State<_ComplaintThreadDialog> {
-  final _controller = TextEditingController();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
+  final (String, Color, Color) Function(ComplaintStatus) statusStyle;
+  final VoidCallback onOpenChat;
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      insetPadding: const EdgeInsets.all(20),
-      child: ListenableBuilder(
-        listenable: widget.app,
-        builder: (context, _) {
-          final complaint = widget.app.complaints.firstWhere(
-            (entry) => entry.id == widget.complaint.id,
-            orElse: () => widget.complaint,
-          );
-          final isResolved = complaint.status == ComplaintStatus.resolved;
+    final (statusText, statusColor, statusBg) = statusStyle(complaint.status);
+    final hasReply = complaint.messages.any((m) => m.senderRole == 'admin');
+    final resolved = complaint.status == ComplaintStatus.resolved;
 
-          return Padding(
-            padding: const EdgeInsets.all(18),
-            child: SizedBox(
-              width: 520,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          complaint.subject,
-                          style: WiText.title.copyWith(fontSize: 15),
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        icon: const Icon(Icons.close),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '${complaint.category} · ${complaint.description}',
-                    style: WiText.body.copyWith(fontSize: 12.8),
-                  ),
-                  const SizedBox(height: 12),
-                  if (isResolved)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: WiColors.greenSoft,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text('Resolved', style: WiText.caption.copyWith(color: WiColors.green)),
-                    )
-                  else
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: WiColors.blueSoft,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text('Open for chat', style: WiText.caption.copyWith(color: WiColors.blue)),
-                    ),
-                  const SizedBox(height: 12),
-                  Flexible(
-                    child: Container(
-                      constraints: const BoxConstraints(maxHeight: 320),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: WiColors.field),
-                      ),
-                      child: ListView(
-                        shrinkWrap: true,
-                        children: [
-                          if (complaint.messages.isEmpty)
-                            Text('No messages yet. Your support thread will appear here.', style: WiText.body)
-                          else
-                            for (final message in complaint.messages)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 8),
-                                child: Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    color: message.senderRole == 'admin' ? WiColors.primary.withValues(alpha: 0.08) : WiColors.field,
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        message.senderRole == 'admin' ? 'Support team' : 'You',
-                                        style: WiText.label.copyWith(fontSize: 11.5),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(message.text, style: WiText.body.copyWith(fontSize: 12.8)),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _controller,
-                    enabled: !isResolved,
-                    maxLines: 3,
-                    decoration: InputDecoration(
-                      hintText: isResolved ? 'This chat is closed.' : 'Write a message to support...',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: isResolved ? null : () async {
-                            final text = _controller.text.trim();
-                            if (text.isEmpty) return;
-                            await widget.app.sendComplaintMessage(complaint.id, text);
-                            _controller.clear();
-                          },
-                          child: const Text('Send'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+    return Container(
+      decoration: const BoxDecoration(
+        color: WiColors.card,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+      ),
+      padding: const EdgeInsets.fromLTRB(22, 12, 22, 28),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 42,
+              height: 4,
+              decoration: BoxDecoration(
+                color: WiColors.line,
+                borderRadius: BorderRadius.circular(4),
               ),
             ),
-          );
-        },
+          ),
+          const SizedBox(height: 20),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(complaint.subject,
+                    style: WiText.title.copyWith(fontSize: 17)),
+              ),
+              const SizedBox(width: 12),
+              StatusPill(text: statusText, color: statusColor, background: statusBg),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text('${complaint.category} · ${complaint.date}', style: WiText.caption),
+          const SizedBox(height: 18),
+          Text('DESCRIPTION', style: WiText.label),
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: WiColors.field,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Text(complaint.description,
+                style: WiText.body.copyWith(fontSize: 13, height: 1.45)),
+          ),
+          const SizedBox(height: 18),
+          if (hasReply)
+            Row(
+              children: [
+                const Icon(Icons.mark_chat_read_rounded,
+                    size: 16, color: WiColors.primary),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text('Support has replied to your complaint.',
+                      style: WiText.caption.copyWith(
+                          color: WiColors.primary, fontWeight: FontWeight.w700)),
+                ),
+              ],
+            )
+          else
+            Row(
+              children: [
+                const Icon(Icons.schedule_rounded,
+                    size: 16, color: WiColors.inkSoft),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text('Awaiting a reply from our support team.',
+                      style: WiText.caption),
+                ),
+              ],
+            ),
+          const SizedBox(height: 18),
+          PrimaryButton(
+            text: resolved
+                ? 'View conversation'
+                : (hasReply ? 'Continue chat' : 'Open chat'),
+            trailingArrow: false,
+            onPressed: onOpenChat,
+          ),
+        ],
       ),
     );
   }
