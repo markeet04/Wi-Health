@@ -27,4 +27,18 @@ void dsp_rfft_mag(const double *x, int m, int nfft, double *mag);
  * `nfft` must be a power of two >= 2n. */
 void dsp_autocorr(const double *x, int n, int nfft, double *ac);
 
+/* ---- single-precision variants (float32) ----
+ * The ESP32-S3 has a HARDWARE float32 FPU but only SOFTWARE double, so float
+ * is ~10-40x faster on-device. These are used ONLY by pair selection, where
+ * we need the ranking of candidate scores, not full double precision. The
+ * estimator keeps the double versions above (final bpm accuracy matters).
+ *
+ * dsp_fft_f: in-place radix-2 FFT on float re/im (n power of two, sign=-1 fwd).
+ * dsp_rfft_mag_f: |rFFT| of a real float signal zero-padded to nfft. `re`,`im`
+ *   are caller scratch of length nfft; `mag` receives nfft/2+1 magnitudes.
+ *   Passing scratch in avoids malloc per candidate. */
+void dsp_fft_f(float *re, float *im, int n, int sign);
+void dsp_rfft_mag_f(const float *x, int m, int nfft, float *mag,
+                    float *re, float *im);
+
 #endif /* DSP_FFT_H */

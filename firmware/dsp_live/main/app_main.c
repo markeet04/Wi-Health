@@ -64,6 +64,7 @@ static const char *TAG = "dsp_live";
 #define FS_HZ            10.0     /* resample target rate */
 #define WINDOW_SEC       30.0
 #define STRIDE_SEC       5.0
+#define PAIR_RESELECT_WINDOWS 6   /* re-select pairs every N windows (~30 s) */
 /* raw CSI arrives ~90-100 pkt/s; hold >30 s with a little headroom */
 #define RING_SECONDS     33
 #define RING_PKT_PER_SEC 100
@@ -294,18 +295,18 @@ static void dsp_task(void *arg)
         double mscore = 0, mbase = 0;
         int is_motion = dsp_motion_check(&s_gate, Huni, m, s_act, &mscore, &mbase);
 
-        /* stage 03: select pairs ONCE (first valid window), then reuse forever.
-         * The selected pair indices (~22-41) stay within the active-subcarrier
-         * range every window, so a small window-to-window change in s_act does
-         * not invalidate them — re-selecting each window would waste the (still
-         * costly) selection and stall the loop. */
-        if (s_pair_count == 0) {
-            printf("selecting subcarrier pairs (one-time)...\n");
+        /* stage 03: (re)select subcarrier pairs. Now that scoring is float32
+         * (fast on the S3 FPU), we re-select periodically so the pairs stay
+         * matched to the live signal — selecting once from the opening window
+         * (which may be during settling/movement) gave poor pairs and few
+         * trusted windows. Re-select on the first window and every
+         * PAIR_RESELECT_WINDOWS thereafter. */
+        if (s_pair_count == 0 || (window_idx % PAIR_RESELECT_WINDOWS) == 0) {
             int64_t tp = esp_timer_get_time();
-            s_pair_count = dsp_select_pairs(Huni, m, s_act, 20, 0.1, 0.5, FS_HZ,
-                                            s_pair_i, s_pair_j);
-            s_active_s = s_act;
-            printf("selected %d pairs in %lld ms\n", s_pair_count,
+            int np = dsp_select_pairs(Huni, m, s_act, 20, 0.1, 0.5, FS_HZ,
+                                      s_pair_i, s_pair_j);
+            if (np >= 1) { s_pair_count = np; s_active_s = s_act; }
+            printf("  [pairs re-selected: %d in %lld ms]\n", s_pair_count,
                    (long long)((esp_timer_get_time() - tp) / 1000));
         }
         if (s_pair_count < 1) { window_idx++; vTaskDelay(pdMS_TO_TICKS((int)(STRIDE_SEC*1000))); continue; }
