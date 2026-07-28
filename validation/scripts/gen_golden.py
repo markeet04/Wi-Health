@@ -48,6 +48,9 @@ import numpy as _np  # noqa: E402
 from firmware.components.dsp_breathing.cscr import (  # noqa: E402
     compute_cscr, select_subcarrier_pairs, cscr_to_respiratory_waveform,
 )
+from firmware.components.dsp_breathing.motion import (  # noqa: E402
+    window_motion_score, MotionGate,
+)
 
 DEFAULT_CSV = "data/live_20260724_122036_b_3ft_qasim.csv"
 
@@ -197,6 +200,32 @@ def main() -> int:
         f.write(f"status {status}\n")
     print(f"  estimator: bpm_fft={bpm_fft:.2f} bpm_ac={bpm_ac:.2f} "
           f"median={bpm_median:.2f} conf={confidence:.3f} status={status}")
+
+    # Stage 08: motion gate. Slice the resampled matrix into the same sliding
+    # windows the streaming path uses (30s/5s), run window_motion_score + the
+    # stateful MotionGate, and dump per-window (score, is_motion, baseline).
+    # This exercises the cold-baseline lock + step-change state machine so the
+    # C port can replay the exact sequence.
+    win = int(round(float(cfg["window_seconds"]) * fs))
+    stride = max(1, int(round(float(cfg["stride_seconds"]) * fs)))
+    gate = MotionGate()
+    with (outdir / "08_motion.txt").open("w", encoding="utf-8") as f:
+        f.write("# window_index score is_motion baseline\n")
+        widx = 0
+        start = 0
+        while start + win <= H_u.shape[0]:
+            H_window = H_u[start:start + win]
+            is_motion, score, baseline = gate.check(H_window)
+            f.write(f"{widx} {score:.9g} {1 if is_motion else 0} {baseline:.9g}\n")
+            widx += 1
+            start += stride
+    # also dump the raw single-window score for the first window (deterministic
+    # part, independent of gate state) for a direct unit check.
+    if H_u.shape[0] >= win:
+        s0 = window_motion_score(H_u[:win])
+        (outdir / "08_motion_score0.txt").write_text(
+            f"{s0:.9g}\n", encoding="utf-8")
+    print(f"  motion: {widx} windows scored (win={win} stride={stride})")
 
     print(f"\ngolden vectors written to {outdir}")
     print("stages:", ", ".join(sorted(p.name for p in outdir.glob("*.txt"))))
