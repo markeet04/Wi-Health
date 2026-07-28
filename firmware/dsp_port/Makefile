@@ -18,7 +18,7 @@ VECDIR  := test_vectors
 # src/<name>.c + the shared vec_io.c.
 STAGES  := nulldrop resample pairs cscr waveform bandpass
 
-TESTS   := $(addprefix $(BUILD)/,$(addsuffix _test,$(STAGES)))
+TESTS   := $(addprefix $(BUILD)/,$(addsuffix _test,$(STAGES))) $(BUILD)/estimator_test
 
 .PHONY: test clean
 test: $(TESTS)
@@ -27,6 +27,11 @@ test: $(TESTS)
 		./$$t $(VECDIR) || fail=1; \
 	done; \
 	if [ $$fail -eq 0 ]; then echo "=== all stage tests PASS ==="; else echo "=== some stage tests FAILED ==="; exit 1; fi
+
+# estimator_test needs two src files (estimator + fft), so give it its own rule
+# ahead of the generic single-source pattern below.
+$(BUILD)/estimator_test: $(TEST)/estimator_test.c $(SRC)/dsp_estimator.c $(SRC)/dsp_fft.c $(TEST)/vec_io.c | $(BUILD)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 $(BUILD)/%_test: $(TEST)/%_test.c $(SRC)/%.c $(TEST)/vec_io.c | $(BUILD)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
