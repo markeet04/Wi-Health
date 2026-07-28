@@ -1,0 +1,5 @@
+## IDF Component Manager Manifest — mirror of rx_csi_recv so the CSI gain
+## control component is available for the capture path.
+dependencies:
+  idf: ">=5.1"
+  esp_csi_gain_ctrl: ">=0.1.4"
