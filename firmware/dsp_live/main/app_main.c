@@ -240,7 +240,11 @@ static void dsp_task(void *arg)
     double  *ts     = heap_caps_malloc((size_t)cap_pkts * sizeof(double), MALLOC_CAP_SPIRAM);
     double  *medbuf = heap_caps_malloc((size_t)cap_pkts * sizeof(double), MALLOC_CAP_SPIRAM);
     int     *kept   = heap_caps_malloc((size_t)MAX_SUBC * sizeof(int), MALLOC_CAP_SPIRAM);
-    int uni_cap = (int)(WINDOW_SEC * FS_HZ) + 8;
+    /* Resampled length = span_seconds * FS + 1. The snapshot takes up to
+     * WINDOW_PKTS packets; at the *slowest* plausible rate (~70 pps) that spans
+     * more than WINDOW_SEC, so size the grid for the worst case with headroom
+     * (WINDOW_PKTS packets could be ~WINDOW_PKTS/70 s). */
+    int uni_cap = (int)((double)WINDOW_PKTS / 70.0 * FS_HZ) + 16;
     float *Huni = heap_caps_malloc((size_t)uni_cap * MAX_SUBC * 2 * sizeof(float), MALLOC_CAP_SPIRAM);
     float *cscr = heap_caps_malloc((size_t)uni_cap * 64 * 2 * sizeof(float), MALLOC_CAP_SPIRAM);
     float *wave = heap_caps_malloc((size_t)uni_cap * sizeof(float), MALLOC_CAP_SPIRAM);
@@ -288,9 +292,13 @@ static void dsp_task(void *arg)
         double mscore = 0, mbase = 0;
         int is_motion = dsp_motion_check(&s_gate, Huni, m, s_act, &mscore, &mbase);
 
-        /* stage 03: select pairs ONCE, then cache. Uses the first good window. */
-        if (s_pair_count == 0 || s_active_s != s_act) {
-            printf("selecting subcarrier pairs (one-time, may take a few s)...\n");
+        /* stage 03: select pairs ONCE (first valid window), then reuse forever.
+         * The selected pair indices (~22-41) stay within the active-subcarrier
+         * range every window, so a small window-to-window change in s_act does
+         * not invalidate them — re-selecting each window would waste the (still
+         * costly) selection and stall the loop. */
+        if (s_pair_count == 0) {
+            printf("selecting subcarrier pairs (one-time)...\n");
             int64_t tp = esp_timer_get_time();
             s_pair_count = dsp_select_pairs(Huni, m, s_act, 20, 0.1, 0.5, FS_HZ,
                                             s_pair_i, s_pair_j);

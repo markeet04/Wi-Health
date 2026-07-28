@@ -17,6 +17,6 @@ idf_component_register(
         "."
         "${DSP_PORT}"
     REQUIRES
-        nvs_flash esp_wifi esp_now esp_timer esp_psram
+        nvs_flash esp_wifi esp_timer esp_psram
         esp_csi_gain_ctrl
 )

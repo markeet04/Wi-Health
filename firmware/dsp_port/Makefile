@@ -33,6 +33,11 @@ test: $(TESTS)
 $(BUILD)/estimator_test: $(TEST)/estimator_test.c $(SRC)/dsp_estimator.c $(SRC)/dsp_fft.c $(TEST)/vec_io.c | $(BUILD)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
+# pairs_test validates end-to-end (pairs -> full chain), so it links the whole
+# pipeline; and pair scoring itself now uses the FFT.
+$(BUILD)/pairs_test: $(TEST)/pairs_test.c $(SRC)/dsp_pairs.c $(SRC)/dsp_fft.c $(SRC)/dsp_cscr.c $(SRC)/dsp_waveform.c $(SRC)/dsp_bandpass.c $(SRC)/dsp_estimator.c $(TEST)/vec_io.c | $(BUILD)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+
 $(BUILD)/%_test: $(TEST)/%_test.c $(SRC)/%.c $(TEST)/vec_io.c | $(BUILD)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 

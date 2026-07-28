@@ -19,6 +19,11 @@
 #ifndef DSP_PAIRS_H
 #define DSP_PAIRS_H
 
+/* Candidate cap. Candidates are generated i-outer/j-inner over subcarriers, so
+ * the cap also bounds how deep into the subcarrier range we scan. The good
+ * pairs empirically cluster around i=22-24 (deep in the scan), so the cap must
+ * stay large enough to reach them — cutting it too far silently changes the
+ * result. Speed comes from the FFT-based score, not from fewer candidates. */
 #define DSP_PAIRS_MAX_CANDIDATES 3000
 
 /* Input:  H        interleaved complex, n rows * s cols (uniform-resampled CSI).

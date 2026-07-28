@@ -9,7 +9,11 @@ CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 
 # CSI capture (mirrors rx_csi_recv).
-CONFIG_ESP_TASK_WDT_TIMEOUT_S=30
+# Disable the task watchdog: the one-time subcarrier-pair selection legitimately
+# hogs a core for several seconds (soft-double FFT scoring), which would
+# otherwise trip the idle-task watchdog. This is a dev monitor, not a
+# safety-critical build.
+CONFIG_ESP_TASK_WDT_INIT=n
 CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=128
 CONFIG_ESP_WIFI_CSI_ENABLED=y
 CONFIG_ESP_WIFI_AMPDU_TX_ENABLED=n
