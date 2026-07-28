@@ -13,6 +13,7 @@ idf_component_register(
         "${DSP_PORT}/dsp_waveform.c"
         "${DSP_PORT}/dsp_bandpass.c"
         "${DSP_PORT}/dsp_motion.c"
+        "${DSP_PORT}/dsp_smooth.c"
     INCLUDE_DIRS
         "."
         "${DSP_PORT}"

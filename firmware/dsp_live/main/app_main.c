@@ -46,6 +46,7 @@
 #include "dsp_bandpass.h"
 #include "dsp_motion.h"
 #include "dsp_estimator.h"
+#include "dsp_smooth.h"
 
 /* ================= config (mirror rx_csi_recv) ================= */
 #define WIFI_CHANNEL 6
@@ -259,6 +260,7 @@ static void dsp_task(void *arg)
              2.0 * cap_pkts * MAX_SUBC * sizeof(int16_t) / 1024.0 / 1024.0);
 
     dsp_est_cfg_t ecfg; dsp_est_defaults(&ecfg);
+    dsp_smoother_t smoother; dsp_smooth_init(&smoother, 6);
     int valid_windows = 0;
     int window_idx = 0;
 
@@ -324,11 +326,31 @@ static void dsp_task(void *arg)
         dsp_estimate(bp, m, &ecfg, &e);
 
         int64_t t_ms = (esp_timer_get_time() - t_start) / 1000;
-        if (e.status == DSP_STATUS_OK) valid_windows++;
 
-        printf("window %d [%d pkts -> %d samp]  bpm=%.1f  conf=%+.2f  status=%s  (valid=%d)  %lldms\n",
-               window_idx, n, m, e.bpm_median, e.confidence,
-               dsp_status_str(e.status), valid_windows, (long long)t_ms);
+        /* Only valid (status=ok) windows feed the rolling-median smoother, so a
+         * single noisy window is outvoted instead of standing alone. The
+         * SMOOTHED value is the trustworthy reading (like the Python
+         * `smoothed=` column); the raw per-window bpm is shown for context. */
+        double smoothed = NAN;
+        int smooth_n = 0;
+        if (e.status == DSP_STATUS_OK) {
+            valid_windows++;
+            dsp_smooth_push(&smoother, e.bpm_median);
+        }
+        smoothed = dsp_smooth_value(&smoother);
+        smooth_n = dsp_smooth_count(&smoother);
+
+        if (smooth_n > 0) {
+            printf("window %d [%d pkts -> %d samp]  bpm=%.1f  conf=%+.2f  status=%-14s "
+                   "SMOOTHED=%.1f (n=%d)  %lldms\n",
+                   window_idx, n, m, e.bpm_median, e.confidence,
+                   dsp_status_str(e.status), smoothed, smooth_n, (long long)t_ms);
+        } else {
+            printf("window %d [%d pkts -> %d samp]  bpm=%.1f  conf=%+.2f  status=%-14s "
+                   "SMOOTHED=-- (settling)  %lldms\n",
+                   window_idx, n, m, e.bpm_median, e.confidence,
+                   dsp_status_str(e.status), (long long)t_ms);
+        }
 
         window_idx++;
         vTaskDelay(pdMS_TO_TICKS((int)(STRIDE_SEC * 1000)));
