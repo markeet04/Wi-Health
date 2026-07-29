@@ -60,6 +60,19 @@
 static const uint8_t CONFIG_CSI_SEND_MAC[] = {0x1a, 0x00, 0x00, 0x00, 0x00, 0x00};
 static const char *TAG = "dsp_live";
 
+/* ================= Module 4: result broadcast to the uploader =============
+ * After each window, RX broadcasts the derived breathing result over ESP-NOW.
+ * A separate "uploader" board (STA-joined to a router) receives this and writes
+ * it to Firebase /devices/$id/live — RX itself can't do that (it is locked in
+ * promiscuous mode on the CSI channel, not associated to an AP). The packet
+ * layout is the shared firmware/shared/wihealth_result.h contract so RX and
+ * the uploader can never disagree on the bytes. */
+#include "wihealth_result.h"
+
+/* broadcast address — the uploader listens as a broadcast peer on the same
+ * channel; we don't need to know its MAC in advance. */
+static const uint8_t BROADCAST_MAC[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+
 /* ================= DSP window params ================= */
 #define FS_HZ            10.0     /* resample target rate */
 #define WINDOW_SEC       30.0
@@ -117,6 +130,25 @@ static void wifi_esp_now_init(esp_now_peer_info_t peer)
     ESP_ERROR_CHECK(esp_now_add_peer(&peer));
     /* S3: per-peer rate cfg faults; use the global API (RX only receives). */
     ESP_ERROR_CHECK(esp_wifi_config_espnow_rate(WIFI_IF_STA, CONFIG_ESP_NOW_RATE));
+}
+
+/* Broadcast one breathing result over ESP-NOW to the uploader board. Non-fatal
+ * on error (the monitor keeps working even if no uploader is listening). */
+static void send_result(uint32_t seq, float bpm, float confidence, uint8_t status)
+{
+    wihealth_result_t pkt = {
+        .magic = WIHEALTH_RESULT_MAGIC,
+        .version = WIHEALTH_RESULT_VER,
+        .status = status,
+        ._pad = 0,
+        .bpm = bpm,
+        .confidence = confidence,
+        .seq = seq,
+    };
+    esp_err_t err = esp_now_send(BROADCAST_MAC, (const uint8_t *)&pkt, sizeof(pkt));
+    if (err != ESP_OK) {
+        ESP_LOGD(TAG, "esp_now_send result failed: %s", esp_err_to_name(err));
+    }
 }
 
 /* ================= CSI callback: parse + push to ring ================= */
@@ -351,6 +383,15 @@ static void dsp_task(void *arg)
                    "SMOOTHED=-- (settling)  %lldms\n",
                    window_idx, n, m, e.bpm_median, e.confidence,
                    dsp_status_str(e.status), (long long)t_ms);
+        }
+
+        /* Module 4: broadcast the result to the uploader board. Send the
+         * SMOOTHED bpm (the trustworthy reading) when we have one, else 0 —
+         * the schema requires bpm=0 whenever the reading isn't valid. */
+        {
+            float out_bpm = (smooth_n > 0 && !isnan(smoothed)) ? (float)smoothed : 0.0f;
+            send_result((uint32_t)window_idx, out_bpm, (float)e.confidence,
+                        (uint8_t)e.status);
         }
 
         window_idx++;

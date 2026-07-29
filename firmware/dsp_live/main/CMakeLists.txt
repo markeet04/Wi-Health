@@ -17,6 +17,7 @@ idf_component_register(
     INCLUDE_DIRS
         "."
         "${DSP_PORT}"
+        "${CMAKE_CURRENT_LIST_DIR}/../../shared"
     REQUIRES
         nvs_flash esp_wifi esp_timer esp_psram
         esp_csi_gain_ctrl
