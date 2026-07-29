@@ -16,7 +16,7 @@ VECDIR  := test_vectors
 
 # One entry per ported stage: <name>_test built from test/<name>_test.c +
 # src/<name>.c + the shared vec_io.c.
-STAGES  := nulldrop resample frontend pairs cscr waveform bandpass
+STAGES  := nulldrop resample frontend pairs cscr waveform bandpass anomaly
 
 TESTS   := $(addprefix $(BUILD)/,$(addsuffix _test,$(STAGES))) $(BUILD)/estimator_test
 

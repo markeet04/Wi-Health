@@ -47,6 +47,7 @@
 #include "dsp_motion.h"
 #include "dsp_estimator.h"
 #include "dsp_smooth.h"
+#include "dsp_anomaly.h"
 
 /* ================= config (mirror rx_csi_recv) ================= */
 #define WIFI_CHANNEL 6
@@ -296,6 +297,9 @@ static void dsp_task(void *arg)
 
     dsp_est_cfg_t ecfg; dsp_est_defaults(&ecfg);
     dsp_smoother_t smoother; dsp_smooth_init(&smoother, 6);
+    dsp_anom_cfg_t acfg; dsp_anom_defaults(&acfg);
+    acfg.stride_s = STRIDE_SEC;
+    dsp_anom_t anom; dsp_anom_init(&anom, &acfg);
     int valid_windows = 0;
     int window_idx = 0;
 
@@ -385,6 +389,25 @@ static void dsp_task(void *arg)
                    "SMOOTHED=-- (settling)  %lldms\n",
                    window_idx, n, m, e.bpm_median, e.confidence,
                    dsp_status_str(e.status), (long long)t_ms);
+        }
+
+        /* Module 5 Tier-1: feed the window to the anomaly detector (rate rules
+         * + temporal voting, apnea occupancy-gated). Uses this window's ok
+         * status and the smoothed bpm. Print any raised alert. */
+        {
+            int ok = (e.status == DSP_STATUS_OK);
+            double abpm = (smooth_n > 0 && !isnan(smoothed)) ? smoothed : 0.0;
+            dsp_anom_alert_t al = dsp_anom_update(&anom, ok ? true : false, abpm);
+            if (al.type != DSP_ANOM_NONE) {
+                if (al.type == DSP_ANOM_APNEA) {
+                    printf("  ** ALERT: APNEA (%s) — no valid breathing for %.0fs **\n",
+                           dsp_anom_severity_str(al.type), al.apnea_seconds);
+                } else {
+                    printf("  ** ALERT: %s (%s) — bpm %.1f, votes %d/%d **\n",
+                           dsp_anom_type_str(al.type), dsp_anom_severity_str(al.type),
+                           al.bpm, al.votes, al.window);
+                }
+            }
         }
 
         /* Module 4: broadcast the result to the uploader board. Send the
