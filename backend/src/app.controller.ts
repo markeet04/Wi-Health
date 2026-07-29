@@ -135,4 +135,17 @@ export class AppController {
 
     return this.appService.resolveComplaint(token, complaintId)
   }
+
+  // Module 4: mint a Firebase custom token for an ESP32 sensor (admin-only).
+  // The token (uid=deviceId, claim device=true) is flashed to the uploader
+  // board so it can authenticate and write /devices/$deviceId/live.
+  @Post('admin/devices/:deviceId/token')
+  mintDeviceToken(@Param('deviceId') deviceId: string, @Headers('authorization') authorization?: string) {
+    const token = bearerToken(authorization)
+    if (!token) {
+      throw new UnauthorizedException('Missing bearer token.')
+    }
+
+    return this.appService.mintDeviceToken(token, deviceId)
+  }
 }

@@ -24,6 +24,7 @@ typedef struct {
     double conf_ac;
     double bpm_median;
     double confidence;
+    double signal_quality;  /* 0..1 spectral SNR proxy (for the cloud schema) */
     int agreement;          /* 0/1 */
     dsp_status_t status;
 } dsp_estimate_t;

@@ -154,6 +154,24 @@ void dsp_estimate(const float *x, int n, const dsp_est_cfg_t *cfg,
     } else {
         out->status = DSP_STATUS_OK;
     }
+
+    /* signal_quality (0..1) for the cloud schema. We have no empty-room
+     * baseline, so use the FFT peak-to-mean spectral SNR (conf_fft) as the
+     * proxy: it measures how strongly a periodic component stands out of the
+     * noise floor — exactly "link/signal quality". conf_fft is unbounded above
+     * (~1 for pure noise, tens for a strong clean breath), so saturate it into
+     * 0..1 with q = snr / (snr + K). K is chosen so the min_confidence-era SNR
+     * (~a few) maps to mid-range. NaN -> 0. */
+    {
+        double snr = out->conf_fft;
+        if (!(snr > 0.0)) {
+            out->signal_quality = 0.0;
+        } else {
+            const double K = 4.0;
+            double q = snr / (snr + K);
+            out->signal_quality = (q < 0.0) ? 0.0 : (q > 1.0) ? 1.0 : q;
+        }
+    }
 }
 
 const char *dsp_status_str(dsp_status_t s) {

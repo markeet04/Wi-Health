@@ -134,7 +134,8 @@ static void wifi_esp_now_init(esp_now_peer_info_t peer)
 
 /* Broadcast one breathing result over ESP-NOW to the uploader board. Non-fatal
  * on error (the monitor keeps working even if no uploader is listening). */
-static void send_result(uint32_t seq, float bpm, float confidence, uint8_t status)
+static void send_result(uint32_t seq, float bpm, float confidence,
+                        float signal_quality, uint8_t status)
 {
     wihealth_result_t pkt = {
         .magic = WIHEALTH_RESULT_MAGIC,
@@ -143,6 +144,7 @@ static void send_result(uint32_t seq, float bpm, float confidence, uint8_t statu
         ._pad = 0,
         .bpm = bpm,
         .confidence = confidence,
+        .signal_quality = signal_quality,
         .seq = seq,
     };
     esp_err_t err = esp_now_send(BROADCAST_MAC, (const uint8_t *)&pkt, sizeof(pkt));
@@ -391,7 +393,7 @@ static void dsp_task(void *arg)
         {
             float out_bpm = (smooth_n > 0 && !isnan(smoothed)) ? (float)smoothed : 0.0f;
             send_result((uint32_t)window_idx, out_bpm, (float)e.confidence,
-                        (uint8_t)e.status);
+                        (float)e.signal_quality, (uint8_t)e.status);
         }
 
         window_idx++;
