@@ -39,4 +39,21 @@ int wihealth_packet_valid(const wihealth_result_t *p, size_t len);
  * on error/overflow. */
 int wihealth_build_live_json(const wihealth_result_t *p, char *out, size_t cap);
 
+/* --- Module 5 alerts ---
+ * When a packet carries a non-zero alert_type, the uploader POSTs a new alert
+ * to /alerts/$deviceId.json (push key). These map the packet's alert to the
+ * /alerts schema (type, severity, summary, votes, raisedAt). */
+
+/* alert_type -> /alerts type string ("apnea"/"tachypnea"/"bradypnea"); NULL if
+ * alert_type is NONE/unknown. */
+const char *wihealth_alert_type_str(unsigned char alert_type);
+
+/* alert_type -> severity ("urgent" for apnea, "warning" otherwise). */
+const char *wihealth_alert_severity_str(unsigned char alert_type);
+
+/* Build the JSON body for a POST to /alerts/$deviceId.json for the packet's
+ * alert. Returns chars written (excl NUL), or 0 if there is no alert / on
+ * overflow. raisedAt uses the RTDB server-timestamp placeholder. */
+int wihealth_build_alert_json(const wihealth_result_t *p, char *out, size_t cap);
+
 #endif /* WIHEALTH_CLOUD_MAP_H */

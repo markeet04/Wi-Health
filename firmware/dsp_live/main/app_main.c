@@ -136,13 +136,15 @@ static void wifi_esp_now_init(esp_now_peer_info_t peer)
 /* Broadcast one breathing result over ESP-NOW to the uploader board. Non-fatal
  * on error (the monitor keeps working even if no uploader is listening). */
 static void send_result(uint32_t seq, float bpm, float confidence,
-                        float signal_quality, uint8_t status)
+                        float signal_quality, uint8_t status,
+                        uint8_t alert_type, uint8_t alert_votes)
 {
     wihealth_result_t pkt = {
         .magic = WIHEALTH_RESULT_MAGIC,
         .version = WIHEALTH_RESULT_VER,
         .status = status,
-        ._pad = 0,
+        .alert_type = alert_type,
+        .alert_votes = alert_votes,
         .bpm = bpm,
         .confidence = confidence,
         .signal_quality = signal_quality,
@@ -394,11 +396,18 @@ static void dsp_task(void *arg)
         /* Module 5 Tier-1: feed the window to the anomaly detector (rate rules
          * + temporal voting, apnea occupancy-gated). Uses this window's ok
          * status and the smoothed bpm. Print any raised alert. */
+        /* Module 5 Tier-1: feed the window to the anomaly detector (rate rules
+         * + temporal voting, apnea occupancy-gated) ON-DEVICE. Detection stays
+         * here (offline-safe); the alert is forwarded to the cloud in the
+         * result packet for the app to display. */
+        uint8_t alert_type = WIHEALTH_ALERT_NONE, alert_votes = 0;
         {
             int ok = (e.status == DSP_STATUS_OK);
             double abpm = (smooth_n > 0 && !isnan(smoothed)) ? smoothed : 0.0;
             dsp_anom_alert_t al = dsp_anom_update(&anom, ok ? true : false, abpm);
             if (al.type != DSP_ANOM_NONE) {
+                alert_type = (uint8_t)al.type;      /* dsp_anom_type_t == WIHEALTH_ALERT_* */
+                alert_votes = (uint8_t)al.votes;
                 if (al.type == DSP_ANOM_APNEA) {
                     printf("  ** ALERT: APNEA (%s) — no valid breathing for %.0fs **\n",
                            dsp_anom_severity_str(al.type), al.apnea_seconds);
@@ -410,13 +419,14 @@ static void dsp_task(void *arg)
             }
         }
 
-        /* Module 4: broadcast the result to the uploader board. Send the
-         * SMOOTHED bpm (the trustworthy reading) when we have one, else 0 —
-         * the schema requires bpm=0 whenever the reading isn't valid. */
+        /* Module 4: broadcast the result (+ any alert) to the uploader board.
+         * Send the SMOOTHED bpm when we have one, else 0 — the schema requires
+         * bpm=0 whenever the reading isn't valid. */
         {
             float out_bpm = (smooth_n > 0 && !isnan(smoothed)) ? (float)smoothed : 0.0f;
             send_result((uint32_t)window_idx, out_bpm, (float)e.confidence,
-                        (float)e.signal_quality, (uint8_t)e.status);
+                        (float)e.signal_quality, (uint8_t)e.status,
+                        alert_type, alert_votes);
         }
 
         window_idx++;

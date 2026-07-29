@@ -53,3 +53,39 @@ int wihealth_build_live_json(const wihealth_result_t *p, char *out, size_t cap) 
     if (n < 0 || (size_t)n >= cap) return 0;   /* overflow / error */
     return n;
 }
+
+const char *wihealth_alert_type_str(unsigned char alert_type) {
+    switch (alert_type) {
+        case WIHEALTH_ALERT_APNEA:     return "apnea";
+        case WIHEALTH_ALERT_TACHYPNEA: return "tachypnea";
+        case WIHEALTH_ALERT_BRADYPNEA: return "bradypnea";
+        default:                       return (const char *)0;   /* NONE / unknown */
+    }
+}
+
+const char *wihealth_alert_severity_str(unsigned char alert_type) {
+    return (alert_type == WIHEALTH_ALERT_APNEA) ? "urgent" : "warning";
+}
+
+int wihealth_build_alert_json(const wihealth_result_t *p, char *out, size_t cap) {
+    if (!p || !out || cap == 0) return 0;
+    const char *type = wihealth_alert_type_str(p->alert_type);
+    if (!type) return 0;   /* no alert to report */
+    const char *sev = wihealth_alert_severity_str(p->alert_type);
+
+    /* human summary per type */
+    const char *summary =
+        (p->alert_type == WIHEALTH_ALERT_APNEA)     ? "No valid breathing detected (possible apnea)." :
+        (p->alert_type == WIHEALTH_ALERT_TACHYPNEA) ? "Breathing rate above normal range (tachypnea)." :
+                                                      "Breathing rate below normal range (bradypnea).";
+
+    int n = snprintf(out, cap,
+        "{\"type\":\"%s\",\"severity\":\"%s\",\"summary\":\"%s\","
+        "\"votes\":\"%u/%u\",\"raisedAt\":{\".sv\":\"timestamp\"},"
+        "\"acknowledged\":false,\"acknowledgedBy\":null}",
+        type, sev, summary,
+        (unsigned)p->alert_votes, (unsigned)p->alert_votes);
+
+    if (n < 0 || (size_t)n >= cap) return 0;
+    return n;
+}
