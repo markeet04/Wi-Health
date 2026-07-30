@@ -302,6 +302,7 @@ static void dsp_task(void *arg)
     dsp_anom_cfg_t acfg; dsp_anom_defaults(&acfg);
     acfg.stride_s = STRIDE_SEC;
     dsp_anom_t anom; dsp_anom_init(&anom, &acfg);
+    double s_last_ok_conf = 0.0, s_last_ok_sq = 0.0;  /* conf/SQ of latest trusted window */
     int valid_windows = 0;
     int window_idx = 0;
 
@@ -377,6 +378,11 @@ static void dsp_task(void *arg)
         if (e.status == DSP_STATUS_OK) {
             valid_windows++;
             dsp_smooth_push(&smoother, e.bpm_median);
+            /* remember the confidence/signalQuality of the latest TRUSTED window,
+             * so a smoothed-OK report carries a coherent (trusted) confidence
+             * rather than the current possibly-noisy window's low value. */
+            s_last_ok_conf = e.confidence;
+            s_last_ok_sq   = e.signal_quality;
         }
         smoothed = dsp_smooth_value(&smoother);
         smooth_n = dsp_smooth_count(&smoother);
@@ -394,9 +400,6 @@ static void dsp_task(void *arg)
         }
 
         /* Module 5 Tier-1: feed the window to the anomaly detector (rate rules
-         * + temporal voting, apnea occupancy-gated). Uses this window's ok
-         * status and the smoothed bpm. Print any raised alert. */
-        /* Module 5 Tier-1: feed the window to the anomaly detector (rate rules
          * + temporal voting, apnea occupancy-gated) ON-DEVICE. Detection stays
          * here (offline-safe); the alert is forwarded to the cloud in the
          * result packet for the app to display. */
@@ -411,6 +414,11 @@ static void dsp_task(void *arg)
                 if (al.type == DSP_ANOM_APNEA) {
                     printf("  ** ALERT: APNEA (%s) — no valid breathing for %.0fs **\n",
                            dsp_anom_severity_str(al.type), al.apnea_seconds);
+                    /* breathing genuinely stopped — drop the smoothed history so
+                     * we report no-breathing, not a stale rate. */
+                    dsp_smooth_init(&smoother, 6);
+                    smoothed = NAN;
+                    smooth_n = 0;
                 } else {
                     printf("  ** ALERT: %s (%s) — bpm %.1f, votes %d/%d **\n",
                            dsp_anom_type_str(al.type), dsp_anom_severity_str(al.type),
@@ -420,13 +428,30 @@ static void dsp_task(void *arg)
         }
 
         /* Module 4: broadcast the result (+ any alert) to the uploader board.
-         * Send the SMOOTHED bpm when we have one, else 0 — the schema requires
-         * bpm=0 whenever the reading isn't valid. */
+         * Report the SMOOTHED reading, not the current raw window: the rolling
+         * median of recent VALID windows is the trustworthy live rate, and it
+         * rides out individual noisy windows (the whole point of the smoother).
+         * So the status we report reflects the SMOOTHER, not this one window:
+         *   - smoother has valid windows -> status OK, bpm = smoothed
+         *   - smoother empty            -> no_valid_breathing, bpm = 0
+         * (the smoother is cleared above when apnea fires, so a genuine stop
+         * correctly falls back to no_valid_breathing.) */
         {
-            float out_bpm = (smooth_n > 0 && !isnan(smoothed)) ? (float)smoothed : 0.0f;
-            send_result((uint32_t)window_idx, out_bpm, (float)e.confidence,
-                        (float)e.signal_quality, (uint8_t)e.status,
-                        alert_type, alert_votes);
+            uint8_t out_status;
+            float out_bpm, out_conf, out_sq;
+            if (smooth_n > 0 && !isnan(smoothed)) {
+                out_bpm = (float)smoothed;
+                out_status = DSP_STATUS_OK;
+                out_conf = (float)s_last_ok_conf;  /* coherent with the OK reading */
+                out_sq   = (float)s_last_ok_sq;
+            } else {
+                out_bpm = 0.0f;
+                out_status = DSP_STATUS_NO_VALID_BREATHING;
+                out_conf = (float)e.confidence;    /* current window's (low) values */
+                out_sq   = (float)e.signal_quality;
+            }
+            send_result((uint32_t)window_idx, out_bpm, out_conf, out_sq,
+                        out_status, alert_type, alert_votes);
         }
 
         window_idx++;
