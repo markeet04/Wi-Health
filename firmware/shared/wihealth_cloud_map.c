@@ -54,6 +54,14 @@ int wihealth_build_live_json(const wihealth_result_t *p, char *out, size_t cap) 
     return n;
 }
 
+int wihealth_build_health_json(char *out, size_t cap) {
+    if (!out || cap == 0) return 0;
+    int n = snprintf(out, cap,
+        "{\"online\":true,\"lastSeen\":{\".sv\":\"timestamp\"}}");
+    if (n < 0 || (size_t)n >= cap) return 0;
+    return n;
+}
+
 const char *wihealth_alert_type_str(unsigned char alert_type) {
     switch (alert_type) {
         case WIHEALTH_ALERT_APNEA:     return "apnea";

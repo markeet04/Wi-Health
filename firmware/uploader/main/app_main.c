@@ -242,6 +242,15 @@ static void uploader_task(void *arg)
             }
         }
 
+        /* health write — mark the device online (the app treats a device as
+         * live only when health.online==true). PATCH so we only touch these
+         * fields. */
+        int hn = wihealth_build_health_json(json, sizeof(json));
+        if (hn > 0) {
+            snprintf(path, sizeof(path), "devices/%s/health", CFG_DEVICE_ID);
+            rtdb_write(path, json, HTTP_METHOD_PATCH);
+        }
+
         /* alert write (Module 5), if any */
         int an = wihealth_build_alert_json(&p, json, sizeof(json));
         if (an > 0) {

@@ -56,4 +56,10 @@ const char *wihealth_alert_severity_str(unsigned char alert_type);
  * overflow. raisedAt uses the RTDB server-timestamp placeholder. */
 int wihealth_build_alert_json(const wihealth_result_t *p, char *out, size_t cap);
 
+/* Build the JSON body for a PATCH to /devices/$id/health.json marking the
+ * device online with a server-time lastSeen. The mobile app treats a device
+ * as live only when health.online == true, so the uploader must maintain this
+ * (the device is online whenever it is uploading). Returns chars written. */
+int wihealth_build_health_json(char *out, size_t cap);
+
 #endif /* WIHEALTH_CLOUD_MAP_H */
