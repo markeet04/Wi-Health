@@ -151,6 +151,8 @@ static bool firebase_auth(void)
         .event_handler = http_ev, .user_data = &r,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .timeout_ms = 15000,
+        .buffer_size = 3072,       /* response holds the ~2KB idToken */
+        .buffer_size_tx = 2048,    /* request body holds the custom token */
     };
     esp_http_client_handle_t c = esp_http_client_init(&cfg);
     esp_http_client_set_header(c, "Content-Type", "application/json");
@@ -192,6 +194,11 @@ static bool rtdb_write(const char *path, const char *json, esp_http_client_metho
         .url = url, .method = method,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .timeout_ms = 15000,
+        /* the URL embeds the ~2 KB ID token in ?auth=, so the default 512-byte
+         * tx buffer overflows ("HTTP_CLIENT: Out of buffer"). Size the tx
+         * buffer for the long URL + headers. */
+        .buffer_size = 2048,
+        .buffer_size_tx = 4096,
     };
     esp_http_client_handle_t c = esp_http_client_init(&cfg);
     esp_http_client_set_header(c, "Content-Type", "application/json");
