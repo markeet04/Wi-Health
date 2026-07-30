@@ -303,8 +303,18 @@ static void dsp_task(void *arg)
     acfg.stride_s = STRIDE_SEC;
     dsp_anom_t anom; dsp_anom_init(&anom, &acfg);
     double s_last_ok_conf = 0.0, s_last_ok_sq = 0.0;  /* conf/SQ of latest trusted window */
+    int s_last_ok_window = -1;   /* window_idx of the most recent valid (ok) window */
     int valid_windows = 0;
     int window_idx = 0;
+
+    /* Staleness guard: the smoothed reading is only reported as a live rate if a
+     * valid window landed within this many seconds. Smoothing rides out
+     * per-window noise, but a health monitor must NOT show a stale rate that
+     * looks current — if the signal degrades (a run of disagreement/low-conf
+     * windows, which do NOT trip the apnea reset), blank the rate after this.
+     * ~30 s = one window length; long enough to not flicker on a single bad
+     * window, short enough that a real loss of signal surfaces promptly. */
+    const double STALE_AFTER_S = 30.0;
 
     while (1) {
         /* wait until we have at least one full window of data */
@@ -383,6 +393,7 @@ static void dsp_task(void *arg)
              * rather than the current possibly-noisy window's low value. */
             s_last_ok_conf = e.confidence;
             s_last_ok_sq   = e.signal_quality;
+            s_last_ok_window = window_idx;
         }
         smoothed = dsp_smooth_value(&smoother);
         smooth_n = dsp_smooth_count(&smoother);
@@ -437,14 +448,23 @@ static void dsp_task(void *arg)
          * (the smoother is cleared above when apnea fires, so a genuine stop
          * correctly falls back to no_valid_breathing.) */
         {
+            /* staleness: how long since the last valid (ok) window? */
+            double since_ok_s = (s_last_ok_window < 0)
+                ? 1e9
+                : (double)(window_idx - s_last_ok_window) * STRIDE_SEC;
+            int fresh = (smooth_n > 0) && !isnan(smoothed) && (since_ok_s <= STALE_AFTER_S);
+
             uint8_t out_status;
             float out_bpm, out_conf, out_sq;
-            if (smooth_n > 0 && !isnan(smoothed)) {
+            if (fresh) {
                 out_bpm = (float)smoothed;
                 out_status = DSP_STATUS_OK;
                 out_conf = (float)s_last_ok_conf;  /* coherent with the OK reading */
                 out_sq   = (float)s_last_ok_sq;
             } else {
+                /* either no valid window ever, or the smoothed reading has gone
+                 * stale (>STALE_AFTER_S with no fresh valid window). Withhold the
+                 * rate rather than show a stale number that looks current. */
                 out_bpm = 0.0f;
                 out_status = DSP_STATUS_NO_VALID_BREATHING;
                 out_conf = (float)e.confidence;    /* current window's (low) values */
