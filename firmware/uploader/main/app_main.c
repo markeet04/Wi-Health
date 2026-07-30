@@ -179,11 +179,15 @@ static bool firebase_auth(void)
     return ok;
 }
 
-/* PUT/POST json to an RTDB path (path like "devices/<id>/live" or "alerts/<id>"). */
+/* PUT/POST json to an RTDB path (path like "devices/<id>/live" or "alerts/<id>").
+ * The URL embeds the ~2 KB ID token in ?auth=, so the buffer is large and
+ * static (too big for the stack). Not reentrant — only the single uploader
+ * task calls this. */
+static char s_url[3072];
 static bool rtdb_write(const char *path, const char *json, esp_http_client_method_t method)
 {
-    char url[320];
-    snprintf(url, sizeof(url), "%s/%s.json?auth=%s", CFG_DB_URL, path, s_id_token);
+    char *url = s_url;
+    snprintf(s_url, sizeof(s_url), "%s/%s.json?auth=%s", CFG_DB_URL, path, s_id_token);
     esp_http_client_config_t cfg = {
         .url = url, .method = method,
         .crt_bundle_attach = esp_crt_bundle_attach,
