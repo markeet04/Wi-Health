@@ -7,6 +7,12 @@ import '../auth/auth_models.dart';
 import '../models.dart';
 
 class PatientRepository {
+  /// A device is considered offline / its reading stale if the newest
+  /// live.updatedAt is older than this. The device writes every ~5 s (stride),
+  /// so ~20 s tolerates a couple of missed writes without false-flapping, while
+  /// still flipping to offline quickly when the device actually stops.
+  static const int _deviceStaleMs = 20000;
+
   PatientRepository({
     required this._user,
     required this._appState,
@@ -26,7 +32,19 @@ class PatientRepository {
     _listenUserSettings();
     _listenComplaints();
     _listenDevices();
+
+    // Re-evaluate liveness periodically even when NO new Firebase data arrives:
+    // if the device dies, updates simply stop, so without this tick the stale
+    // reading would never be recomputed. Every few seconds we rebuild patients,
+    // which re-runs the updatedAt-freshness check and flips a dead device to
+    // offline / no-valid-breathing.
+    _staleTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (_disposed) return;
+      _refreshAppState();
+    });
   }
+
+  Timer? _staleTimer;
 
   void _listenUserSettings() {
     final ref = _db.ref('users/${_user.uid}/settings');
@@ -51,6 +69,8 @@ class PatientRepository {
   bool _disposed = false;
 
   void dispose() {
+    _staleTimer?.cancel();
+    _staleTimer = null;
     for (final sub in _subscriptions) {
       sub.cancel();
     }
@@ -234,16 +254,28 @@ class PatientRepository {
     final normalHigh = _toInt(meta['normalHigh']);
     final firmware = meta['firmware']?.toString() ?? '';
 
-    final status = _mapBreathStatus(live['status']?.toString());
-    final bpm = _toInt(live['bpm']);
+    var status = _mapBreathStatus(live['status']?.toString());
+    var bpm = _toInt(live['bpm']);
     final confidence = _toDouble(live['confidence']);
     final signalQuality = _toDouble(live['signalQuality']);
-    final online = health['online'] == true;
-    final lastSync = _formatRelativeTimestamp(
-      _toInt(health['lastSeen']) != 0
-          ? _toInt(health['lastSeen'])
-          : _toInt(live['updatedAt']),
-    );
+
+    // Liveness is judged by DATA FRESHNESS, not just the health.online flag: a
+    // device that loses power/WiFi cannot flip online=false, so that flag can
+    // sit stale-true forever. The device writes live.updatedAt every ~5 s, so
+    // if the newest value is older than _deviceStaleMs the device is effectively
+    // offline — and a stale breathing rate must NOT be shown as current.
+    final lastUpdate = _toInt(live['updatedAt']) != 0
+        ? _toInt(live['updatedAt'])
+        : _toInt(health['lastSeen']);
+    final ageMs = DateTime.now().millisecondsSinceEpoch - lastUpdate;
+    final fresh = lastUpdate != 0 && ageMs >= 0 && ageMs < _deviceStaleMs;
+    final online = fresh && (health['online'] == true);
+    if (!fresh) {
+      // stale data: don't present an old rate as if it were live
+      status = BreathStatus.noBreathing;
+      bpm = 0;
+    }
+    final lastSync = _formatRelativeTimestamp(lastUpdate);
 
     return Patient(
       id: deviceId,
