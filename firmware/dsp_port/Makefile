@@ -16,9 +16,9 @@ VECDIR  := test_vectors
 
 # One entry per ported stage: <name>_test built from test/<name>_test.c +
 # src/<name>.c + the shared vec_io.c.
-STAGES  := nulldrop resample
+STAGES  := nulldrop resample frontend pairs cscr waveform bandpass anomaly
 
-TESTS   := $(addprefix $(BUILD)/,$(addsuffix _test,$(STAGES)))
+TESTS   := $(addprefix $(BUILD)/,$(addsuffix _test,$(STAGES))) $(BUILD)/estimator_test
 
 .PHONY: test clean
 test: $(TESTS)
@@ -27,6 +27,16 @@ test: $(TESTS)
 		./$$t $(VECDIR) || fail=1; \
 	done; \
 	if [ $$fail -eq 0 ]; then echo "=== all stage tests PASS ==="; else echo "=== some stage tests FAILED ==="; exit 1; fi
+
+# estimator_test needs two src files (estimator + fft), so give it its own rule
+# ahead of the generic single-source pattern below.
+$(BUILD)/estimator_test: $(TEST)/estimator_test.c $(SRC)/dsp_estimator.c $(SRC)/dsp_fft.c $(TEST)/vec_io.c | $(BUILD)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+
+# pairs_test validates end-to-end (pairs -> full chain), so it links the whole
+# pipeline; and pair scoring itself now uses the FFT.
+$(BUILD)/pairs_test: $(TEST)/pairs_test.c $(SRC)/dsp_pairs.c $(SRC)/dsp_fft.c $(SRC)/dsp_cscr.c $(SRC)/dsp_waveform.c $(SRC)/dsp_bandpass.c $(SRC)/dsp_estimator.c $(TEST)/vec_io.c | $(BUILD)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 $(BUILD)/%_test: $(TEST)/%_test.c $(SRC)/%.c $(TEST)/vec_io.c | $(BUILD)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)

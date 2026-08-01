@@ -665,6 +665,61 @@ export class AppService {
     return { ok: true, complaintId }
   }
 
+  /**
+   * Module 4 device provisioning: mint a long-lived Firebase custom token for
+   * an ESP32 sensor. uid = deviceId, claim device=true — this is exactly what
+   * cloud/database.rules.json requires to write /devices/$deviceId/live
+   * (auth.uid === $deviceId && auth.token.device === true).
+   *
+   * The token is flashed to / configured on the uploader board; it exchanges
+   * it for an ID token (signInWithCustomToken) and then writes breathing
+   * results to RTDB. Admin-only. Also seeds a minimal /devices/$id/meta so the
+   * device is a registered entity (admins later fill in room/patient/owner).
+   */
+  async mintDeviceToken(accessToken: string, deviceId: string) {
+    const session = await this.restoreSession(accessToken)
+    if (session.user.role !== 'admin') {
+      throw new ForbiddenException('Admin access required.')
+    }
+
+    const id = (deviceId ?? '').trim()
+    if (!id || !/^[A-Za-z0-9_-]{3,128}$/.test(id)) {
+      throw new BadRequestException('Valid deviceId required (3-128 chars: A-Z a-z 0-9 _ -).')
+    }
+
+    if (!this.firebaseEnabled()) {
+      // demo mode: no real token, but report the intended shape
+      return { ok: true, deviceId: id, token: null, mode: 'demo' as const }
+    }
+
+    const firebaseApp = this.firebaseApp
+    if (!firebaseApp) {
+      throw new BadRequestException('Firebase is not configured.')
+    }
+
+    // Mint the custom token with the device claim.
+    const token = await getAuth(firebaseApp).createCustomToken(id, { device: true })
+
+    // Register a minimal device meta if none exists (admin fills the rest later).
+    const metaRef = getDatabase(firebaseApp).ref(`devices/${id}/meta`)
+    const snap = await metaRef.get()
+    if (!snap.exists()) {
+      await metaRef.set({
+        model: 'esp32-s3',
+        firmware: 'dsp_live',
+        room: '',
+        patientName: '',
+        patientRelation: '',
+        normalLow: 8,
+        normalHigh: 30,
+        ownerUid: '',
+        provisionedAt: Date.now(),
+      })
+    }
+
+    return { ok: true, deviceId: id, token, mode: 'firebase' as const }
+  }
+
   private firebaseEnabled() {
     return Boolean(this.firebaseApp && process.env.FIREBASE_WEB_API_KEY)
   }

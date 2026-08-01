@@ -42,9 +42,14 @@ from firmware.components.csi_capture.clean_health import (  # noqa: E402
 )
 from firmware.components.dsp_breathing.breathing import (  # noqa: E402
     DEFAULTS, _resample_complex_uniform, _bandpass,
+    bpm_from_fft, bpm_from_autocorrelation,
 )
+import numpy as _np  # noqa: E402
 from firmware.components.dsp_breathing.cscr import (  # noqa: E402
     compute_cscr, select_subcarrier_pairs, cscr_to_respiratory_waveform,
+)
+from firmware.components.dsp_breathing.motion import (  # noqa: E402
+    window_motion_score, MotionGate,
 )
 
 DEFAULT_CSV = "data/live_20260724_122036_b_3ft_qasim.csv"
@@ -151,6 +156,76 @@ def main() -> int:
     # Stage 06: Butterworth bandpass (zero-phase) — estimator input
     wave_bp = _bandpass(wave, band[0], band[1], fs, order=int(cfg["butter_order"]))
     _write_real_vector(outdir / "06_bandpass.txt", wave_bp)
+
+    # Stage 07: estimator (FFT + autocorrelation + gating). Dump the scalar
+    # outputs so the C estimator can diff against them. Mirrors the exact
+    # combine/gate logic in _estimate_from_complex.
+    bpm_fft, conf_fft = bpm_from_fft(wave_bp, fs, band=band)
+    bpm_ac, conf_ac = bpm_from_autocorrelation(wave_bp, fs, band=band)
+    min_bpm = float(cfg["min_bpm"]); max_bpm = float(cfg["max_bpm"])
+    valid_fft = _np.isfinite(bpm_fft) and min_bpm <= bpm_fft <= max_bpm
+    valid_ac = _np.isfinite(bpm_ac) and min_bpm <= bpm_ac <= max_bpm
+    if valid_fft and valid_ac:
+        bpm_median = float(_np.median([bpm_fft, bpm_ac]))
+        agreement = abs(bpm_fft - bpm_ac) <= float(cfg["agreement_threshold_bpm"])
+        confidence = float(min(conf_fft, conf_ac))
+    elif valid_fft:
+        bpm_median, agreement, confidence = float(bpm_fft), False, float(conf_fft) * 0.5
+    elif valid_ac:
+        bpm_median, agreement, confidence = float(bpm_ac), False, float(conf_ac) * 0.5
+    else:
+        bpm_median, agreement, confidence = float("nan"), False, 0.0
+    min_conf = float(cfg["min_confidence"])
+    if not (valid_fft or valid_ac):
+        status = "no_valid_breathing"
+    elif not agreement:
+        status = "disagreement"
+    elif confidence < min_conf:
+        status = "low_confidence"
+    else:
+        status = "ok"
+
+    def _f(v):
+        return "nan" if (isinstance(v, float) and _np.isnan(v)) else f"{v:.9g}"
+
+    with (outdir / "07_estimator.txt").open("w", encoding="utf-8") as f:
+        f.write("# key value\n")
+        f.write(f"bpm_fft {_f(bpm_fft)}\n")
+        f.write(f"conf_fft {_f(conf_fft)}\n")
+        f.write(f"bpm_ac {_f(bpm_ac)}\n")
+        f.write(f"conf_ac {_f(conf_ac)}\n")
+        f.write(f"bpm_median {_f(bpm_median)}\n")
+        f.write(f"confidence {_f(confidence)}\n")
+        f.write(f"agreement {1 if agreement else 0}\n")
+        f.write(f"status {status}\n")
+    print(f"  estimator: bpm_fft={bpm_fft:.2f} bpm_ac={bpm_ac:.2f} "
+          f"median={bpm_median:.2f} conf={confidence:.3f} status={status}")
+
+    # Stage 08: motion gate. Slice the resampled matrix into the same sliding
+    # windows the streaming path uses (30s/5s), run window_motion_score + the
+    # stateful MotionGate, and dump per-window (score, is_motion, baseline).
+    # This exercises the cold-baseline lock + step-change state machine so the
+    # C port can replay the exact sequence.
+    win = int(round(float(cfg["window_seconds"]) * fs))
+    stride = max(1, int(round(float(cfg["stride_seconds"]) * fs)))
+    gate = MotionGate()
+    with (outdir / "08_motion.txt").open("w", encoding="utf-8") as f:
+        f.write("# window_index score is_motion baseline\n")
+        widx = 0
+        start = 0
+        while start + win <= H_u.shape[0]:
+            H_window = H_u[start:start + win]
+            is_motion, score, baseline = gate.check(H_window)
+            f.write(f"{widx} {score:.9g} {1 if is_motion else 0} {baseline:.9g}\n")
+            widx += 1
+            start += stride
+    # also dump the raw single-window score for the first window (deterministic
+    # part, independent of gate state) for a direct unit check.
+    if H_u.shape[0] >= win:
+        s0 = window_motion_score(H_u[:win])
+        (outdir / "08_motion_score0.txt").write_text(
+            f"{s0:.9g}\n", encoding="utf-8")
+    print(f"  motion: {widx} windows scored (win={win} stride={stride})")
 
     print(f"\ngolden vectors written to {outdir}")
     print("stages:", ", ".join(sorted(p.name for p in outdir.glob("*.txt"))))

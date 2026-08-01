@@ -1,0 +1,19 @@
+# Original ESP32 (ESP32-D0WD-V3). CH340 UART bridge -> console on UART0 (the
+# default), so no USB-Serial-JTAG override needed here (unlike the S3 boards).
+CONFIG_IDF_TARGET="esp32"
+
+CONFIG_PARTITION_TABLE_OFFSET=0x8000
+
+# TLS to Firebase needs a decent app partition + mbedTLS. Use a single-factory
+# layout with a 1.5 MB app partition (default 1 MB is tight with mbedTLS).
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# Larger main task stack for the TLS handshake + JSON work.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# mbedTLS / HTTPS client — bundle the common root CAs so we can reach Google.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y

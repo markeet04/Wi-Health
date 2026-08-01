@@ -1,0 +1,33 @@
+# ESP32-S3 with the same console + CSI settings as rx_csi_recv, PLUS PSRAM
+# enabled so the ~30 s CSI ring buffer (~300 KB) lives in external RAM.
+CONFIG_IDF_TARGET="esp32s3"
+
+CONFIG_PARTITION_TABLE_OFFSET=0xa000
+
+# Console -> native USB-Serial-JTAG (VID 303A), like rx_csi_recv.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+
+# CSI capture (mirrors rx_csi_recv).
+# Disable the task watchdog: the one-time subcarrier-pair selection legitimately
+# hogs a core for several seconds (soft-double FFT scoring), which would
+# otherwise trip the idle-task watchdog. This is a dev monitor, not a
+# safety-critical build.
+CONFIG_ESP_TASK_WDT_INIT=n
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=128
+CONFIG_ESP_WIFI_CSI_ENABLED=y
+CONFIG_ESP_WIFI_AMPDU_TX_ENABLED=n
+
+# --- PSRAM (this board has 8 MB embedded) ---
+# Octal SPIRAM for the S3 module; used for the CSI ring buffer + big DSP
+# scratch via heap_caps(MALLOC_CAP_SPIRAM).
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_USE_MALLOC=y
+
+# DSP task needs a generous stack (double-precision FFT scratch is heap, but
+# the call chain is deep).
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
