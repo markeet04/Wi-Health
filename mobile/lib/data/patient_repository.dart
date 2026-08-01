@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:firebase_database/firebase_database.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 
 import '../auth/auth_models.dart';
@@ -23,9 +24,13 @@ class PatientRepository {
       } catch (_) {}
     };
 
+    _appState.acknowledgeAlertHandler = _acknowledgeAlert;
+    _appState.dismissAlertHandler = _dismissAlert;
+
     _listenUserSettings();
     _listenComplaints();
     _listenDevices();
+    _registerFcmToken();
   }
 
   void _listenUserSettings() {
@@ -58,6 +63,8 @@ class PatientRepository {
     _appState.submitComplaintHandler = null;
     _appState.sendComplaintMessageHandler = null;
     _appState.resolveComplaintHandler = null;
+    _appState.acknowledgeAlertHandler = null;
+    _appState.dismissAlertHandler = null;
     _disposed = true;
   }
 
@@ -135,6 +142,78 @@ class PatientRepository {
       final raw = _castMap(event.snapshot.value as Map?);
       _appState.setComplaints(_buildComplaints(raw));
     }));
+  }
+
+  Future<void> _registerFcmToken() async {
+    if (_disposed) return;
+    try {
+      final messaging = FirebaseMessaging.instance;
+      await messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+        provisional: true,
+      );
+      await messaging.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+
+      final token = await messaging.getToken();
+      if (token == null || token.isEmpty) return;
+      await _db.ref('users/${_user.uid}/fcmTokens/$token').set(true);
+
+      messaging.onTokenRefresh.listen((newToken) async {
+        if (_disposed) return;
+        try {
+          await _db.ref('users/${_user.uid}/fcmTokens/$newToken').set(true);
+        } catch (_) {}
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _acknowledgeAlert(String alertId, {required String uid}) async {
+    if (_disposed) return;
+    final alertRef = await _findAlertReference(alertId);
+    if (alertRef == null) return;
+
+    await alertRef.update({
+      'acknowledged': true,
+      'acknowledgedBy': uid,
+    });
+
+    final index = _appState.alerts.indexWhere((alert) => alert.id == alertId);
+    if (index >= 0) {
+      _appState.alerts[index].acknowledged = true;
+      _appState.notifyStateChanged();
+    }
+  }
+
+  Future<void> _dismissAlert(String alertId, {required String uid}) async {
+    if (_disposed) return;
+    final alertRef = await _findAlertReference(alertId);
+    if (alertRef == null) return;
+
+    await alertRef.update({
+      'dismissed': true,
+      'dismissedBy': uid,
+    });
+
+    _appState.alerts.removeWhere((alert) => alert.id == alertId);
+    _appState.notifyStateChanged();
+  }
+
+  Future<DatabaseReference?> _findAlertReference(String alertId) async {
+    for (final entry in _deviceStates.entries) {
+      final deviceId = entry.key;
+      final alertNode = _db.ref('alerts/$deviceId/$alertId');
+      final snapshot = await alertNode.get();
+      if (snapshot.exists) {
+        return alertNode;
+      }
+    }
+    return null;
   }
 
   Future<void> _submitComplaint({

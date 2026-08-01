@@ -145,15 +145,32 @@ class AlertDetailScreen extends StatelessWidget {
               ),
               const SizedBox(height: 20),
               if (!alert.acknowledged)
-                PrimaryButton(
-                  text: 'Acknowledge Alert',
-                  trailingArrow: false,
-                  onPressed: () {
-                    app.acknowledgeAlert(alert.id);
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                        content: Text('Alert acknowledged.')));
-                    Navigator.of(context).pop();
-                  },
+                Column(
+                  children: [
+                    PrimaryButton(
+                      text: 'Acknowledge Alert',
+                      trailingArrow: false,
+                      onPressed: () async {
+                        await app.acknowledgeAlert(alert.id, uid: app.userId);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                              content: Text('Alert acknowledged.')));
+                          Navigator.of(context).pop();
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    TextButton.icon(
+                      onPressed: () async {
+                        await app.dismissAlert(alert.id, uid: app.userId);
+                        if (context.mounted) {
+                          Navigator.of(context).pop();
+                        }
+                      },
+                      icon: const Icon(Icons.close_rounded),
+                      label: const Text('Dismiss alert'),
+                    ),
+                  ],
                 )
               else
                 Container(

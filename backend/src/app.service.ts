@@ -3,6 +3,7 @@ import crypto from 'node:crypto'
 import { applicationDefault, initializeApp, getApps, type App as FirebaseApp } from 'firebase-admin/app'
 import { getAuth } from 'firebase-admin/auth'
 import { getDatabase } from 'firebase-admin/database'
+import { getMessaging } from 'firebase-admin/messaging'
 
 export type LoginRequest = {
   email: string
@@ -610,6 +611,29 @@ export class AppService {
       status: 'in_progress',
       updatedAt: Date.now(),
     })
+
+    const complaintSnapshot = await getDatabase(firebaseApp).ref(`complaints/${complaintId}`).get()
+    const complaintData = complaintSnapshot.val() as Record<string, unknown> | null
+    const ownerUid = complaintData?.uid as string | undefined
+
+    if (ownerUid) {
+      const tokensSnapshot = await getDatabase(firebaseApp).ref(`users/${ownerUid}/fcmTokens`).get()
+      const tokens = tokensSnapshot.val() as Record<string, unknown> | null
+      const tokenList = Object.keys(tokens ?? {})
+      if (tokenList.length > 0) {
+        await getMessaging(firebaseApp).sendEachForMulticast({
+          tokens: tokenList,
+          notification: {
+            title: 'Support replied',
+            body: text,
+          },
+          data: {
+            complaintId,
+            type: 'complaint_reply',
+          },
+        })
+      }
+    }
 
     return { ok: true, complaintId }
   }

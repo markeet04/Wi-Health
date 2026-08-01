@@ -1,0 +1,16 @@
+<svg width="512" height="256" viewBox="0 0 512 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffd800"/>
+      <stop offset="100%" stop-color="#ffcc00"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="512" height="256" rx="24" fill="url(#bg)"/>
+  <path d="M32 80H480" stroke="#111" stroke-width="20" stroke-linecap="round"/>
+  <path d="M32 176H480" stroke="#111" stroke-width="20" stroke-linecap="round"/>
+  <path d="M48 56L64 56L64 200L48 200" fill="#111"/>
+  <path d="M464 56L448 56L448 200L464 200" fill="#111"/>
+  <rect x="20" y="20" width="472" height="216" rx="18" stroke="#111" stroke-width="10"/>
+  <text x="256" y="120" text-anchor="middle" fill="#111" font-family="Arial, Helvetica, sans-serif" font-size="52" font-weight="700">UNDER</text>
+  <text x="256" y="180" text-anchor="middle" fill="#111" font-family="Arial, Helvetica, sans-serif" font-size="38" font-weight="700">CONSTRUCTION</text>
+</svg>

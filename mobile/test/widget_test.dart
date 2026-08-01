@@ -363,7 +363,7 @@ void main() {
           .where((a) => a.severity == AlertSeverity.urgent && !a.acknowledged);
       expect(app.unacknowledgedUrgent, urgentOpen.length);
       for (final a in urgentOpen.toList()) {
-        app.acknowledgeAlert(a.id);
+        app.acknowledgeAlert(a.id, uid: 'test-user');
       }
       expect(app.unacknowledgedUrgent, 0);
     });

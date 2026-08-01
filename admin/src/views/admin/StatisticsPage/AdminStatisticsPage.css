@@ -1,7 +1,24 @@
 .admin-statistics-page {
+	position: relative;
 	align-items: stretch;
+	overflow: hidden;
+}
+
+.admin-statistics-page::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	background-image: url('./hapi-removebg-preview.png');
+	background-repeat: no-repeat;
+	background-position: top center;
+	background-size: 100% 120%;
+
+	pointer-events: none;
+	z-index: 2;
 }
 
 .admin-statistics-page > .card {
+	position: relative;
 	height: 100%;
+	z-index: 0;
 }

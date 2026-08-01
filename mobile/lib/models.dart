@@ -212,6 +212,16 @@ class Complaint {
 }
 
 /// App-wide state (hardcoded data for now — Firebase later).
+class AppStateRegistry {
+  static AppState? _shared;
+
+  static AppState get shared => _shared ??= AppState.empty();
+
+  static void bind(AppState state) {
+    _shared = state;
+  }
+}
+
 class AppState extends ChangeNotifier {
   AppState({
     required this.patients,
@@ -246,6 +256,14 @@ class AppState extends ChangeNotifier {
   /// Optional handler provided by a backend repository to persist
   /// notification settings changes (push/urgentOnly/sound) to the server.
   Future<void> Function(String key, Object value)? settingsUpdateHandler;
+
+  /// Optional handler for alert acknowledgements.
+  Future<void> Function(String alertId, {required String uid})?
+      acknowledgeAlertHandler;
+
+  /// Optional handler for dismissing alerts from the feed.
+  Future<void> Function(String alertId, {required String uid})?
+      dismissAlertHandler;
 
   void setPatients(List<Patient> values) {
     patients
@@ -334,6 +352,7 @@ class AppState extends ChangeNotifier {
 
   String userName = 'Qasim Majid';
   String userEmail = 'qasimmaajid04@gmail.com';
+  String userId = '';
 
   int _selectedPatient = 0;
   int get selectedPatient => _selectedPatient;
@@ -347,15 +366,45 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Patient patientById(String id) => patients.firstWhere((p) => p.id == id);
+  Patient patientById(String id) {
+    for (final patient in patients) {
+      if (patient.id == id) {
+        return patient;
+      }
+    }
+    return Patient.empty();
+  }
 
   int get unacknowledgedUrgent => alerts
       .where((a) => !a.acknowledged && a.severity == AlertSeverity.urgent)
       .length;
 
-  void acknowledgeAlert(String id) {
-    alerts.firstWhere((a) => a.id == id).acknowledged = true;
+  void notifyStateChanged() {
     notifyListeners();
+  }
+
+  Future<void> acknowledgeAlert(String id, {required String uid}) async {
+    final index = alerts.indexWhere((a) => a.id == id);
+    if (index >= 0) {
+      alerts[index].acknowledged = true;
+      notifyListeners();
+    }
+
+    if (acknowledgeAlertHandler != null) {
+      await acknowledgeAlertHandler!(id, uid: uid);
+    }
+  }
+
+  Future<void> dismissAlert(String id, {required String uid}) async {
+    final before = alerts.length;
+    alerts.removeWhere((a) => a.id == id);
+    if (alerts.length != before) {
+      notifyListeners();
+    }
+
+    if (dismissAlertHandler != null) {
+      await dismissAlertHandler!(id, uid: uid);
+    }
   }
 
   /// Links a new patient/device pair (hardcoded locally for now; later this

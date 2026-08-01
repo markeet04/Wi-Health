@@ -247,6 +247,45 @@
   min-height: 102px;
 }
 
+.card--snapshot {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.stat-section-heading {
+  font-size: 1.2rem;
+  margin-bottom: 1rem;
+}
+
+.stats-grid--snapshot {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+  align-items: stretch;
+}
+
+.stat-tile--stacked {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 100%;
+}
+
+.snapshot-bottom-note {
+  margin-top: 20px;
+  display: flex;
+  justify-content: center;
+}
+
+.construction-image {
+  width: min(100%, 420px);
+  max-height: 140px;
+  object-fit: contain;
+}
+
 .stat-tile p {
   margin: 0;
   color: var(--muted);
@@ -322,23 +361,27 @@ th {
 }
 
 .pill-online {
-  background: #e6f3e7;
-  color: #2c6a35;
+  background: #dcefd9;
+  color: #23472a;
+  border: 1px solid #9fc39f;
 }
 
 .pill-offline {
-  background: #f0f1f3;
-  color: #5b6371;
+  background: #ffe8e8;
+  color: #7a1f1f;
+  border: 1px solid #e0a6a6;
 }
 
 .pill-urgent {
-  background: #ffe8e4;
-  color: #a53f2c;
+  background: #ffe8e8;
+  color: #7a1f1f;
+  border: 1px solid #e0a6a6;
 }
 
 .pill-neutral {
-  background: #edf1f4;
-  color: #425263;
+  background: #f5f6fb;
+  color: #2f5168;
+  border: 1px solid #d6dde8;
 }
 
 .filters {

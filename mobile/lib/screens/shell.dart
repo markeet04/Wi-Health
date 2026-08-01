@@ -30,8 +30,10 @@ class _ShellScreenState extends State<ShellScreen> {
     super.initState();
     final user = authController.user;
     if (user != null) {
+      AppStateRegistry.bind(app);
       app.userName = user.name;
       app.userEmail = user.email;
+      app.userId = user.uid;
       if (AppConfig.useFirebase) {
         _repository = PatientRepository(user: user, appState: app);
       } else {

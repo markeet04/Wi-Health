@@ -15,19 +15,11 @@ function AdminStatisticsPage({ adminStats, fleetDevices, alerts }) {
 
   return (
     <section className="page-grid admin-statistics-page page-fade">
-      <div className="card card-span-2">
-        <h2>Fleet Snapshot</h2>
-        <div className="stats-grid">
-          {adminStats.map((item) => (
-            <article key={item.label} className="stat-tile">
-              <p>{item.label}</p>
-              <strong>{item.value}</strong>
-            </article>
-          ))}
-        </div>
-      </div>
+     
 
-      <div className="card">
+   
+      <div className="card card-span-3">
+          <div className="card">
         <h2>Anomaly Trend (Today)</h2>
         <div className="trend-list">
           {trendItems.length === 0 ? (
@@ -42,8 +34,6 @@ function AdminStatisticsPage({ adminStats, fleetDevices, alerts }) {
           )}
         </div>
       </div>
-
-      <div className="card card-span-3">
         <h2>Device Fleet View</h2>
         <table>
           <thead>
@@ -70,6 +60,10 @@ function AdminStatisticsPage({ adminStats, fleetDevices, alerts }) {
       </div>
 
       <div className="card card-span-3">
+         <div className="card card-span-2 card--snapshot">
+        <h2 className="stat-section-heading">Fleet Snapshot</h2>
+       
+      </div>
         <h2>Live Alert Context</h2>
         <table>
           <thead>
@@ -79,6 +73,14 @@ function AdminStatisticsPage({ adminStats, fleetDevices, alerts }) {
               <th>Device</th>
               <th>Anomaly</th>
               <th>Severity</th>
+               <div className="stats-grid stats-grid--snapshot">
+          {adminStats.map((item) => (
+            <article key={item.label} className="stat-tile stat-tile--stacked">
+              <p>{item.label}</p>
+              <strong>{item.value}</strong>
+            </article>
+          ))}
+        </div>
               <th>Status</th>
             </tr>
           </thead>

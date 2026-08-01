@@ -195,7 +195,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
                 )
               else
                 GestureDetector(
-                  onTap: () => widget.app.acknowledgeAlert(a.id),
+                  onTap: () => widget.app.acknowledgeAlert(a.id, uid: widget.app.userId),
                   child: const StatusPill(
                     text: 'Acknowledge',
                     color: WiColors.primary,
@@ -204,6 +204,15 @@ class _AlertsScreenState extends State<AlertsScreen> {
                   ),
                 ),
               const Spacer(),
+              GestureDetector(
+                onTap: () => widget.app.dismissAlert(a.id, uid: widget.app.userId),
+                child: const StatusPill(
+                  text: 'Dismiss',
+                  color: WiColors.inkSoft,
+                  background: WiColors.field,
+                  icon: Icons.close_rounded,
+                ),
+              ),
               const Text('Details',
                   style: TextStyle(
                       color: WiColors.primary,
