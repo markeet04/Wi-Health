@@ -36,6 +36,7 @@ class PatientRepository {
     _listenUserSettings();
     _listenComplaints();
     _listenDevices();
+    _registerFcmToken();
 
     // Re-evaluate liveness periodically even when NO new Firebase data arrives:
     // if the device dies, updates simply stop, so without this tick the stale
