@@ -82,7 +82,8 @@
           "raisedAt": "epochMs",
           "votes": "string (e.g. '3/3' temporal voting result)",
           "acknowledged": "boolean (owner or admin may set true)",
-          "acknowledgedBy": "string uid | null"
+          "acknowledgedBy": "string uid | null",
+          "notifiedAt": "epochMs | absent — set by the backend after it sends the FCM push for this alert; dedupes push sends across backend restarts"
         }
       }
     },

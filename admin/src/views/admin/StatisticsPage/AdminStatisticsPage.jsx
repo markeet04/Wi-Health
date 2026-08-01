@@ -15,15 +15,23 @@ function AdminStatisticsPage({ adminStats, fleetDevices, alerts }) {
 
   return (
     <section className="page-grid admin-statistics-page page-fade">
-     
-
-   
       <div className="card card-span-3">
-          <div className="card">
+        <h2>Fleet Snapshot</h2>
+        <div className="stats-grid">
+          {adminStats.map((item) => (
+            <article key={item.label} className="stat-tile">
+              <p>{item.label}</p>
+              <strong>{item.value}</strong>
+            </article>
+          ))}
+        </div>
+      </div>
+
+      <div className="card">
         <h2>Anomaly Trend (Today)</h2>
         <div className="trend-list">
           {trendItems.length === 0 ? (
-            <p className="muted">No live anomaly data is available yet.</p>
+            <p className="hint-text">No live anomaly data is available yet.</p>
           ) : (
             trendItems.map((item) => (
               <div key={item.label}>
@@ -34,69 +42,67 @@ function AdminStatisticsPage({ adminStats, fleetDevices, alerts }) {
           )}
         </div>
       </div>
+
+      <div className="card card-span-2">
         <h2>Device Fleet View</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Device</th>
-              <th>Patient</th>
-              <th>Status</th>
-              <th>Health</th>
-              <th>Last Update</th>
-            </tr>
-          </thead>
-          <tbody>
-            {fleetDevices.map((device) => (
-              <tr key={device.id}>
-                <td>{device.id}</td>
-                <td>{device.patient}</td>
-                <td><span className={`pill ${device.status === 'Online' ? 'pill-online' : 'pill-offline'}`}>{device.status}</span></td>
-                <td>{device.health}</td>
-                <td>{device.updated}</td>
+        {fleetDevices.length === 0 ? (
+          <p className="hint-text">No devices registered yet.</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Device</th>
+                <th>Patient</th>
+                <th>Status</th>
+                <th>Health</th>
+                <th>Last Update</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {fleetDevices.map((device) => (
+                <tr key={device.id}>
+                  <td>{device.id}</td>
+                  <td>{device.patient}</td>
+                  <td><span className={`pill ${device.status === 'Online' ? 'pill-online' : 'pill-offline'}`}>{device.status}</span></td>
+                  <td>{device.health}</td>
+                  <td>{device.updated}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
 
       <div className="card card-span-3">
-         <div className="card card-span-2 card--snapshot">
-        <h2 className="stat-section-heading">Fleet Snapshot</h2>
-       
-      </div>
         <h2>Live Alert Context</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Time</th>
-              <th>Patient</th>
-              <th>Device</th>
-              <th>Anomaly</th>
-              <th>Severity</th>
-               <div className="stats-grid stats-grid--snapshot">
-          {adminStats.map((item) => (
-            <article key={item.label} className="stat-tile stat-tile--stacked">
-              <p>{item.label}</p>
-              <strong>{item.value}</strong>
-            </article>
-          ))}
-        </div>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {alerts.map((alert) => (
-              <tr key={`${alert.time}-${alert.device}`}>
-                <td>{alert.time}</td>
-                <td>{alert.patient}</td>
-                <td>{alert.device}</td>
-                <td>{alert.anomaly}</td>
-                <td><span className={`pill ${alert.severity === 'Urgent' ? 'pill-urgent' : 'pill-neutral'}`}>{alert.severity}</span></td>
-                <td>{alert.status}</td>
+        {alerts.length === 0 ? (
+          <p className="hint-text">No alerts recorded yet.</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Patient</th>
+                <th>Device</th>
+                <th>Anomaly</th>
+                <th>Severity</th>
+                <th>Status</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {alerts.map((alert) => (
+                <tr key={`${alert.time}-${alert.device}`}>
+                  <td>{alert.time}</td>
+                  <td>{alert.patient}</td>
+                  <td>{alert.device}</td>
+                  <td>{alert.anomaly}</td>
+                  <td><span className={`pill ${alert.severity === 'Urgent' ? 'pill-urgent' : 'pill-neutral'}`}>{alert.severity}</span></td>
+                  <td>{alert.status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </section>
   )

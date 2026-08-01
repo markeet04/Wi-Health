@@ -1,5 +1,11 @@
 import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, UnauthorizedException } from '@nestjs/common'
-import { AppService, type AdminSettingsResponse, type LoginRequest, type UserMutationRequest } from './app.service'
+import {
+  AppService,
+  type AdminSettingsResponse,
+  type DeviceAssignRequest,
+  type LoginRequest,
+  type UserMutationRequest,
+} from './app.service'
 
 function bearerToken(authorization?: string) {
   if (!authorization) return ''
@@ -147,5 +153,40 @@ export class AppController {
     }
 
     return this.appService.mintDeviceToken(token, deviceId)
+  }
+
+  // Module 8: device -> patient -> App User assignment (admin-only).
+  @Get('admin/devices')
+  listDevices(@Headers('authorization') authorization?: string) {
+    const token = bearerToken(authorization)
+    if (!token) {
+      throw new UnauthorizedException('Missing bearer token.')
+    }
+
+    return this.appService.listDevices(token)
+  }
+
+  @Post('admin/devices/:deviceId/assign')
+  assignDevice(
+    @Param('deviceId') deviceId: string,
+    @Body() body: DeviceAssignRequest,
+    @Headers('authorization') authorization?: string,
+  ) {
+    const token = bearerToken(authorization)
+    if (!token) {
+      throw new UnauthorizedException('Missing bearer token.')
+    }
+
+    return this.appService.assignDevice(token, deviceId, body)
+  }
+
+  @Post('admin/devices/:deviceId/unassign')
+  unassignDevice(@Param('deviceId') deviceId: string, @Headers('authorization') authorization?: string) {
+    const token = bearerToken(authorization)
+    if (!token) {
+      throw new UnauthorizedException('Missing bearer token.')
+    }
+
+    return this.appService.unassignDevice(token, deviceId)
   }
 }

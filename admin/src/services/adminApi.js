@@ -159,6 +159,42 @@ export async function deleteAdminUser(accessToken, uid) {
   })
 }
 
+export async function fetchAdminDevices(accessToken) {
+  if (!accessToken) return null
+
+  try {
+    return await request('/admin/devices', {
+      method: 'GET',
+      token: accessToken,
+    })
+  } catch {
+    return null
+  }
+}
+
+export async function assignAdminDevice(accessToken, deviceId, payload) {
+  if (!accessToken) {
+    throw new Error('Admin session is required.')
+  }
+
+  return request(`/admin/devices/${deviceId}/assign`, {
+    method: 'POST',
+    token: accessToken,
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function unassignAdminDevice(accessToken, deviceId) {
+  if (!accessToken) {
+    throw new Error('Admin session is required.')
+  }
+
+  return request(`/admin/devices/${deviceId}/unassign`, {
+    method: 'POST',
+    token: accessToken,
+  })
+}
+
 export async function sendComplaintMessage(accessToken, complaintId, payload) {
   if (!accessToken) {
     throw new Error('Admin session is required.')

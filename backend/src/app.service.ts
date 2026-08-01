@@ -1,4 +1,12 @@
-import { BadRequestException, ForbiddenException, Injectable, InternalServerErrorException, UnauthorizedException } from '@nestjs/common'
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  UnauthorizedException,
+  type OnModuleInit,
+} from '@nestjs/common'
 import crypto from 'node:crypto'
 import { applicationDefault, initializeApp, getApps, type App as FirebaseApp } from 'firebase-admin/app'
 import { getAuth } from 'firebase-admin/auth'
@@ -15,6 +23,38 @@ export type UserMutationRequest = {
   password: string
   name: string
   role: 'admin' | 'app_user'
+}
+
+export type DeviceAssignRequest = {
+  uid: string
+  patientName?: string
+  patientRelation?: string
+  room?: string
+  normalLow?: number
+  normalHigh?: number
+}
+
+type AdminDeviceRecord = {
+  id: string
+  ownerUid: string
+  patientName: string
+  patientRelation: string
+  room: string
+  normalLow: number
+  normalHigh: number
+  status: string
+  updated: string
+}
+
+type AdminAppUser = {
+  uid: string
+  email: string
+  name: string
+}
+
+type AdminDevicesResponse = {
+  devices: AdminDeviceRecord[]
+  appUsers: AdminAppUser[]
 }
 
 type AdminRole = 'admin'
@@ -217,10 +257,29 @@ export const SEED_DATA = {
 }
 
 @Injectable()
-export class AppService {
+export class AppService implements OnModuleInit {
+  private readonly logger = new Logger(AppService.name)
   private readonly sessions = new Map<string, AdminSession>()
   private readonly firebaseApp = this.initFirebaseApp()
   private readonly demoUsers = new Map<string, DemoUserRecord>(SEED_DATA.users.map((user) => [user.uid, user]))
+  private readonly demoDeviceMeta = new Map<string, Omit<AdminDeviceRecord, 'id' | 'status' | 'updated'>>(
+    SEED_DATA.dashboard.fleetDevices.map((device) => {
+      const owner = SEED_DATA.users.find((user) =>
+        user.devices.split(',').map((id) => id.trim()).includes(device.id),
+      )
+      return [
+        device.id,
+        {
+          ownerUid: owner?.uid ?? '',
+          patientName: device.patient,
+          patientRelation: 'self',
+          room: 'Bedroom',
+          normalLow: 8,
+          normalHigh: 30,
+        },
+      ]
+    }),
+  )
   private readonly demoSettings: AdminSettingsResponse = this.cloneSettings(SEED_DATA.settings)
   private readonly demoEmail = process.env.ADMIN_DEMO_EMAIL ?? demoSession.user.email
   private readonly demoPassword = process.env.ADMIN_DEMO_PASSWORD ?? 'demo-password'
@@ -228,6 +287,12 @@ export class AppService {
     .split(',')
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean)
+
+  onModuleInit() {
+    if (this.firebaseEnabled()) {
+      this.watchAlertsForPush()
+    }
+  }
 
   health() {
     return {
@@ -718,6 +783,310 @@ export class AppService {
     }
 
     return { ok: true, deviceId: id, token, mode: 'firebase' as const }
+  }
+
+  /**
+   * Module 8: device -> patient -> App User assignment. Mirrors
+   * backend/scripts/link-device.mjs but admin-authed and callable from the
+   * panel. Two writes: /users/$uid/devices/$deviceId=true (patient switcher)
+   * and /devices/$deviceId/meta (patient label + thresholds). If the device
+   * was previously linked to a different account, that stale link is removed
+   * so a device never appears under two owners at once.
+   */
+  async assignDevice(accessToken: string, deviceId: string, body: DeviceAssignRequest) {
+    const session = await this.restoreSession(accessToken)
+    if (session.user.role !== 'admin') {
+      throw new ForbiddenException('Admin access required.')
+    }
+
+    const id = (deviceId ?? '').trim()
+    if (!id) {
+      throw new BadRequestException('deviceId is required.')
+    }
+
+    const uid = body.uid?.trim()
+    if (!uid) {
+      throw new BadRequestException('uid is required.')
+    }
+
+    const patientName = body.patientName?.trim() || 'Patient'
+    const patientRelation = body.patientRelation?.trim() || 'self'
+    const room = body.room?.trim() || ''
+    const normalLow = Number(body.normalLow ?? 8)
+    const normalHigh = Number(body.normalHigh ?? 30)
+
+    if (!Number.isFinite(normalLow) || normalLow <= 0) {
+      throw new BadRequestException('normalLow must be a positive number.')
+    }
+    if (!Number.isFinite(normalHigh) || normalHigh > 60 || normalHigh <= normalLow) {
+      throw new BadRequestException('normalHigh must be greater than normalLow and at most 60.')
+    }
+
+    if (!this.firebaseEnabled()) {
+      const targetUser = this.demoUsers.get(uid)
+      if (!targetUser) {
+        throw new BadRequestException('Target user was not found.')
+      }
+      if (targetUser.role !== 'app_user') {
+        throw new BadRequestException('Devices can only be assigned to App User accounts.')
+      }
+
+      const previous = this.demoDeviceMeta.get(id)
+      if (previous?.ownerUid && previous.ownerUid !== uid) {
+        this.detachDemoDeviceFromOwner(id, previous.ownerUid)
+      }
+
+      this.demoDeviceMeta.set(id, { ownerUid: uid, patientName, patientRelation, room, normalLow, normalHigh })
+      this.attachDemoDeviceToOwner(id, uid)
+
+      return { ok: true, deviceId: id, ownerUid: uid }
+    }
+
+    const firebaseApp = this.firebaseApp
+    if (!firebaseApp) {
+      throw new BadRequestException('Firebase is not configured.')
+    }
+
+    const auth = getAuth(firebaseApp)
+    const db = getDatabase(firebaseApp)
+
+    const targetUser = await auth.getUser(uid).catch(() => null)
+    if (!targetUser) {
+      throw new BadRequestException('Target user was not found.')
+    }
+
+    const metaSnap = await db.ref(`devices/${id}/meta`).get()
+    const previousOwnerUid = metaSnap.exists() ? String((metaSnap.val() as Record<string, unknown>).ownerUid ?? '') : ''
+
+    if (previousOwnerUid && previousOwnerUid !== uid) {
+      await db.ref(`users/${previousOwnerUid}/devices/${id}`).remove().catch(() => undefined)
+    }
+
+    await db.ref(`users/${uid}/devices/${id}`).set(true)
+    await db.ref(`devices/${id}/meta`).update({
+      ownerUid: uid,
+      patientName,
+      patientRelation,
+      room,
+      normalLow,
+      normalHigh,
+    })
+
+    return { ok: true, deviceId: id, ownerUid: uid }
+  }
+
+  async unassignDevice(accessToken: string, deviceId: string) {
+    const session = await this.restoreSession(accessToken)
+    if (session.user.role !== 'admin') {
+      throw new ForbiddenException('Admin access required.')
+    }
+
+    const id = (deviceId ?? '').trim()
+    if (!id) {
+      throw new BadRequestException('deviceId is required.')
+    }
+
+    if (!this.firebaseEnabled()) {
+      const previous = this.demoDeviceMeta.get(id)
+      if (previous?.ownerUid) {
+        this.detachDemoDeviceFromOwner(id, previous.ownerUid)
+      }
+      this.demoDeviceMeta.set(id, { ownerUid: '', patientName: '', patientRelation: '', room: '', normalLow: 8, normalHigh: 30 })
+      return { ok: true, deviceId: id }
+    }
+
+    const firebaseApp = this.firebaseApp
+    if (!firebaseApp) {
+      throw new BadRequestException('Firebase is not configured.')
+    }
+
+    const db = getDatabase(firebaseApp)
+    const metaSnap = await db.ref(`devices/${id}/meta`).get()
+    const ownerUid = metaSnap.exists() ? String((metaSnap.val() as Record<string, unknown>).ownerUid ?? '') : ''
+
+    if (ownerUid) {
+      await db.ref(`users/${ownerUid}/devices/${id}`).remove().catch(() => undefined)
+    }
+    await db.ref(`devices/${id}/meta`).update({ ownerUid: '', patientName: '', patientRelation: '', room: '' })
+
+    return { ok: true, deviceId: id }
+  }
+
+  async listDevices(accessToken: string): Promise<AdminDevicesResponse> {
+    const session = await this.restoreSession(accessToken)
+    if (session.user.role !== 'admin') {
+      throw new ForbiddenException('Admin access required.')
+    }
+
+    if (!this.firebaseEnabled()) {
+      const fleetById = new Map(SEED_DATA.dashboard.fleetDevices.map((device) => [device.id, device]))
+      const devices: AdminDeviceRecord[] = Array.from(this.demoDeviceMeta.entries()).map(([id, meta]) => ({
+        id,
+        ...meta,
+        status: fleetById.get(id)?.status ?? 'Offline',
+        updated: fleetById.get(id)?.updated ?? 'unknown',
+      }))
+      const appUsers: AdminAppUser[] = Array.from(this.demoUsers.values())
+        .filter((user) => user.role === 'app_user')
+        .map((user) => ({ uid: user.uid, email: user.email, name: user.name }))
+
+      return { devices, appUsers }
+    }
+
+    const firebaseApp = this.firebaseApp
+    if (!firebaseApp) {
+      throw new BadRequestException('Firebase is not configured.')
+    }
+
+    const db = getDatabase(firebaseApp)
+    const [devicesSnap, usersSnap] = await Promise.all([db.ref('devices').get(), db.ref('users').get()])
+
+    const users = this.normalizeUsers(usersSnap.val())
+    const appUsers: AdminAppUser[] = users
+      .filter((user) => user.role === 'App User')
+      .map((user) => ({ uid: user.uid ?? '', email: user.email ?? '', name: user.name }))
+
+    const rawDevices = (devicesSnap.val() as Record<string, unknown>) ?? {}
+    const devices: AdminDeviceRecord[] = Object.entries(rawDevices).map(([deviceId, value]) => {
+      const device = (value as Record<string, unknown>) ?? {}
+      const meta = (device.meta as Record<string, unknown>) ?? {}
+      const live = (device.live as Record<string, unknown>) ?? {}
+
+      return {
+        id: deviceId,
+        ownerUid: String(meta.ownerUid ?? ''),
+        patientName: String(meta.patientName ?? ''),
+        patientRelation: String(meta.patientRelation ?? ''),
+        room: String(meta.room ?? ''),
+        normalLow: Number(meta.normalLow ?? 8),
+        normalHigh: Number(meta.normalHigh ?? 30),
+        status: String(live.status ?? 'offline').toLowerCase() === 'ok' ? 'Online' : 'Offline',
+        updated: this.formatAge(live.updatedAt),
+      }
+    })
+
+    return { devices, appUsers }
+  }
+
+  private attachDemoDeviceToOwner(deviceId: string, uid: string) {
+    const user = this.demoUsers.get(uid)
+    if (!user) return
+    const ids = new Set(user.devices.split(',').map((value) => value.trim()).filter(Boolean))
+    ids.add(deviceId)
+    user.devices = Array.from(ids).join(', ')
+    user.patients = `${ids.size} linked`
+  }
+
+  private detachDemoDeviceFromOwner(deviceId: string, uid: string) {
+    const user = this.demoUsers.get(uid)
+    if (!user) return
+    const ids = new Set(user.devices.split(',').map((value) => value.trim()).filter(Boolean))
+    ids.delete(deviceId)
+    user.devices = ids.size ? Array.from(ids).join(', ') : '-'
+    user.patients = `${ids.size} linked`
+  }
+
+  /**
+   * Module 7: push the phone when an anomaly fires while the app is
+   * backgrounded/closed. In-app alert delivery (live RTDB listener in the
+   * mobile app) already works and is untouched by this — this is purely the
+   * privileged FCM send, which only the Admin SDK can do.
+   *
+   * Firebase's child_added listener replays every EXISTING child once at
+   * attach time and then fires again for each new one — so attaching to
+   * `alerts` picks up every device (present and future) with one listener,
+   * and attaching to `alerts/$deviceId` the same way picks up every alert.
+   * The replay-on-attach behavior also means a backend restart would resend
+   * every historical alert, so each alert is marked `notifiedAt` after its
+   * push goes out and already-marked alerts are skipped — this also means a
+   * missed push (backend down when the alert fired) is sent once the backend
+   * comes back up instead of being silently dropped.
+   */
+  private watchAlertsForPush() {
+    const firebaseApp = this.firebaseApp
+    if (!firebaseApp) return
+
+    const db = getDatabase(firebaseApp)
+    const watchedDevices = new Set<string>()
+
+    db.ref('alerts').on('child_added', (deviceSnapshot) => {
+      const deviceId = deviceSnapshot.key
+      if (!deviceId || watchedDevices.has(deviceId)) return
+      watchedDevices.add(deviceId)
+
+      db.ref(`alerts/${deviceId}`).on('child_added', async (alertSnapshot) => {
+        const alertId = alertSnapshot.key
+        const alert = alertSnapshot.val() as Record<string, unknown> | null
+        if (!alertId || !alert || alert.notifiedAt) return
+
+        try {
+          await this.sendAlertPush(deviceId, alertId, alert)
+        } catch (error) {
+          this.logger.error(`Failed to send alert push for ${deviceId}/${alertId}`, error instanceof Error ? error.stack : String(error))
+        } finally {
+          await db.ref(`alerts/${deviceId}/${alertId}/notifiedAt`).set(Date.now()).catch(() => undefined)
+        }
+      })
+    })
+  }
+
+  private async sendAlertPush(deviceId: string, alertId: string, alert: Record<string, unknown>) {
+    const firebaseApp = this.firebaseApp
+    if (!firebaseApp) return
+
+    const db = getDatabase(firebaseApp)
+    const metaSnapshot = await db.ref(`devices/${deviceId}/meta`).get()
+    const meta = (metaSnapshot.val() as Record<string, unknown>) ?? {}
+    const ownerUid = String(meta.ownerUid ?? '')
+    if (!ownerUid) return
+
+    const tokensSnapshot = await db.ref(`users/${ownerUid}/fcmTokens`).get()
+    const tokens = Object.keys((tokensSnapshot.val() as Record<string, unknown>) ?? {})
+    if (tokens.length === 0) return
+
+    const type = String(alert.type ?? 'alert')
+    const severity = String(alert.severity ?? 'info')
+    const patientName = String(meta.patientName ?? deviceId)
+    const summary = String(alert.summary ?? '')
+    const title = `${patientName}: ${this.humanizeAlertType(type)}`
+    const body = summary || `${severity === 'urgent' ? 'Urgent' : 'Anomaly'} detected on ${deviceId}.`
+
+    const response = await getMessaging(firebaseApp).sendEachForMulticast({
+      tokens,
+      notification: { title, body },
+      data: {
+        type: 'alert',
+        alertId,
+        patientId: deviceId,
+        deviceId,
+        severity,
+      },
+      android: {
+        priority: severity === 'urgent' ? 'high' : 'normal',
+      },
+    })
+
+    const deadTokens = response.responses
+      .map((result, index) => (!result.success && this.isDeadFcmTokenError(result.error) ? tokens[index] : null))
+      .filter((token): token is string => Boolean(token))
+
+    if (deadTokens.length > 0) {
+      await Promise.all(
+        deadTokens.map((token) => db.ref(`users/${ownerUid}/fcmTokens/${token}`).remove().catch(() => undefined)),
+      )
+    }
+  }
+
+  private isDeadFcmTokenError(error: unknown) {
+    const code = (error as { code?: string } | undefined)?.code ?? ''
+    return code === 'messaging/registration-token-not-registered' || code === 'messaging/invalid-registration-token'
+  }
+
+  private humanizeAlertType(type: string) {
+    return type
+      .split('_')
+      .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
+      .join(' ')
   }
 
   private firebaseEnabled() {

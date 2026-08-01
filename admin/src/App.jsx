@@ -6,6 +6,7 @@ import AppSidebar from './components/AppSidebar/AppSidebar'
 import LoginPage from './views/auth/LoginPage/LoginPage'
 import AdminAlertsPage from './views/admin/AlertsPage/AdminAlertsPage'
 import AdminComplaintsPage from './views/admin/ComplaintsPage/AdminComplaintsPage'
+import AdminDevicesPage from './views/admin/DevicesPage/AdminDevicesPage'
 import AdminSettingsPage from './views/admin/SettingsPage/AdminSettingsPage'
 import AdminStatisticsPage from './views/admin/StatisticsPage/AdminStatisticsPage'
 import AdminUsersPage from './views/admin/UsersPage/AdminUsersPage'
@@ -108,6 +109,7 @@ function App() {
       currentAdminUid={session?.user?.uid}
       onUsersChanged={refreshDashboard}
     />,
+    'Device Assignment': <AdminDevicesPage accessToken={session?.accessToken} />,
     Alerts: <AdminAlertsPage alerts={dashboard?.alerts ?? []} />,
     Complaints: <AdminComplaintsPage complaints={dashboard?.complaints ?? []} accessToken={session?.accessToken} onComplaintsChanged={refreshDashboard} />,
     Settings: <AdminSettingsPage accessToken={session?.accessToken} />,
@@ -115,14 +117,13 @@ function App() {
 
   if (isBooting) {
     return (
-      <div className="login-shell login-page page-fade">
-        <section className="login-card login-page__card">
-          <div className="login-card__hero login-page__hero">
-            <p className="muted">Wi-Netra Health</p>
-            <h1>Loading admin session</h1>
-            <p>Checking the backend for a valid admin session and the latest fleet data.</p>
-          </div>
-        </section>
+      <div className="boot-shell page-fade">
+        <div className="boot-card">
+          <span className="boot-spinner" aria-hidden="true" />
+          <p className="boot-eyebrow">Wi-Netra Health</p>
+          <h1>Loading admin session</h1>
+          <p>Checking the backend for a valid admin session and the latest fleet data.</p>
+        </div>
       </div>
     )
   }

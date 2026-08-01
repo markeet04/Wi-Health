@@ -1,0 +1,304 @@
+import { useEffect, useMemo, useState } from 'react'
+import './AdminDevicesPage.css'
+import { assignAdminDevice, fetchAdminDevices, unassignAdminDevice } from '../../../services/adminApi'
+
+const emptyForm = {
+  deviceId: '',
+  uid: '',
+  patientName: '',
+  patientRelation: 'self',
+  room: '',
+  normalLow: 8,
+  normalHigh: 30,
+}
+
+function AdminDevicesPage({ accessToken }) {
+  const [devices, setDevices] = useState([])
+  const [appUsers, setAppUsers] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [form, setForm] = useState(emptyForm)
+  const [modalMode, setModalMode] = useState('assign')
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [pendingUnassign, setPendingUnassign] = useState(null)
+  const [statusMessage, setStatusMessage] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const loadDevices = async () => {
+    if (!accessToken) {
+      setLoading(false)
+      return
+    }
+
+    const data = await fetchAdminDevices(accessToken)
+    setDevices(data?.devices ?? [])
+    setAppUsers(data?.appUsers ?? [])
+    setLoading(false)
+  }
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function run() {
+      if (!accessToken) {
+        setLoading(false)
+        return
+      }
+      const data = await fetchAdminDevices(accessToken)
+      if (cancelled) return
+      setDevices(data?.devices ?? [])
+      setAppUsers(data?.appUsers ?? [])
+      setLoading(false)
+    }
+
+    run()
+    return () => {
+      cancelled = true
+    }
+  }, [accessToken])
+
+  const sortedDevices = useMemo(() => [...devices].sort((left, right) => left.id.localeCompare(right.id)), [devices])
+
+  const userName = (uid) => appUsers.find((user) => user.uid === uid)?.name ?? appUsers.find((user) => user.uid === uid)?.email ?? uid
+
+  const resetForm = () => {
+    setForm(emptyForm)
+    setStatusMessage('')
+  }
+
+  const openAssignNewModal = () => {
+    resetForm()
+    setModalMode('assign')
+    setIsModalOpen(true)
+  }
+
+  const openReassignModal = (device) => {
+    setModalMode('reassign')
+    setForm({
+      deviceId: device.id,
+      uid: device.ownerUid || '',
+      patientName: device.patientName || '',
+      patientRelation: device.patientRelation || 'self',
+      room: device.room || '',
+      normalLow: device.normalLow || 8,
+      normalHigh: device.normalHigh || 30,
+    })
+    setStatusMessage('')
+    setIsModalOpen(true)
+  }
+
+  const closeModal = () => {
+    setIsModalOpen(false)
+    resetForm()
+  }
+
+  const handleChange = (event) => {
+    const { name, value } = event.target
+    setForm((current) => ({ ...current, [name]: value }))
+  }
+
+  const handleSubmit = async (event) => {
+    event.preventDefault()
+    if (!accessToken) {
+      setStatusMessage('Admin session is missing.')
+      return
+    }
+
+    const deviceId = form.deviceId.trim()
+    const uid = form.uid.trim()
+    const patientName = form.patientName.trim()
+
+    if (!deviceId || !uid || !patientName) {
+      setStatusMessage('Device ID, App User, and patient name are required.')
+      return
+    }
+
+    const normalLow = Number(form.normalLow)
+    const normalHigh = Number(form.normalHigh)
+    if (!Number.isFinite(normalLow) || !Number.isFinite(normalHigh) || normalHigh <= normalLow) {
+      setStatusMessage('Enter valid breathing-rate bounds (high must exceed low).')
+      return
+    }
+
+    setIsSubmitting(true)
+    setStatusMessage('')
+
+    try {
+      await assignAdminDevice(accessToken, deviceId, {
+        uid,
+        patientName,
+        patientRelation: form.patientRelation.trim() || 'self',
+        room: form.room.trim(),
+        normalLow,
+        normalHigh,
+      })
+      setStatusMessage('Device assigned successfully.')
+      closeModal()
+      await loadDevices()
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : 'Unable to assign device.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const confirmUnassign = async () => {
+    if (!accessToken || !pendingUnassign) return
+
+    setIsSubmitting(true)
+    try {
+      await unassignAdminDevice(accessToken, pendingUnassign.id)
+      setPendingUnassign(null)
+      await loadDevices()
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : 'Unable to unassign device.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <section className="page-grid admin-devices-page page-fade">
+      <div className="card card-span-3">
+        <div className="devices-header-row">
+          <h2>Device Assignment</h2>
+          <div className="devices-header-actions">
+            <span className="pill">{sortedDevices.length} Devices</span>
+            <button type="button" className="create-btn" onClick={openAssignNewModal}>Assign Device</button>
+          </div>
+        </div>
+
+        {loading ? (
+          <p className="hint-text">Loading devices…</p>
+        ) : sortedDevices.length === 0 ? (
+          <p className="hint-text">
+            No devices registered yet. Mint a device token first, then use "Assign Device" to link it to a patient account.
+          </p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Device ID</th>
+                <th>Patient</th>
+                <th>Owner Account</th>
+                <th>Room</th>
+                <th>Normal Range</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedDevices.map((device) => (
+                <tr key={device.id}>
+                  <td>{device.id}</td>
+                  <td>{device.patientName || <span className="muted">Unassigned</span>}</td>
+                  <td>{device.ownerUid ? userName(device.ownerUid) : <span className="muted">-</span>}</td>
+                  <td>{device.room || '-'}</td>
+                  <td>{device.normalLow}-{device.normalHigh} bpm</td>
+                  <td>{device.status}</td>
+                  <td>
+                    <div className="table-actions">
+                      <button type="button" className="ghost-btn" onClick={() => openReassignModal(device)}>
+                        {device.ownerUid ? 'Reassign' : 'Assign'}
+                      </button>
+                      {device.ownerUid ? (
+                        <button type="button" className="delete-btn" onClick={() => setPendingUnassign(device)}>Unassign</button>
+                      ) : null}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {pendingUnassign ? (
+        <div className="modal-backdrop" onClick={() => setPendingUnassign(null)}>
+          <div className="modal-card confirmation-card" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-card__head">
+              <h3>Confirm Unassign</h3>
+              <button type="button" className="ghost-btn" onClick={() => setPendingUnassign(null)}>Close</button>
+            </div>
+            <p className="hint-text">
+              Unlink <strong>{pendingUnassign.id}</strong> from{' '}
+              <strong>{userName(pendingUnassign.ownerUid)}</strong>? The patient will no longer see this device in the app.
+            </p>
+            <div className="form-actions">
+              <button type="button" className="delete-btn" disabled={isSubmitting} onClick={confirmUnassign}>
+                {isSubmitting ? 'Unassigning...' : 'Unassign Device'}
+              </button>
+              <button type="button" className="ghost-btn" onClick={() => setPendingUnassign(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isModalOpen ? (
+        <div className="modal-backdrop" onClick={closeModal}>
+          <div className="modal-card" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-card__head">
+              <h3>{modalMode === 'reassign' ? 'Reassign Device' : 'Assign Device'}</h3>
+              <button type="button" className="ghost-btn" onClick={closeModal}>Close</button>
+            </div>
+
+            <form className="stacked-form modal-form" noValidate onSubmit={handleSubmit}>
+              <label>
+                Device ID
+                <input
+                  name="deviceId"
+                  type="text"
+                  value={form.deviceId}
+                  onChange={handleChange}
+                  placeholder="e.g. test-device-1"
+                  disabled={modalMode === 'reassign'}
+                />
+              </label>
+              <label>
+                App User
+                <select name="uid" value={form.uid} onChange={handleChange}>
+                  <option value="">Select an account…</option>
+                  {appUsers.map((user) => (
+                    <option key={user.uid} value={user.uid}>{user.name} ({user.email})</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Patient Name
+                <input name="patientName" type="text" value={form.patientName} onChange={handleChange} placeholder="Patient's name" />
+              </label>
+              <label>
+                Relation to Account
+                <input name="patientRelation" type="text" value={form.patientRelation} onChange={handleChange} placeholder="self, parent, child, …" />
+              </label>
+              <label>
+                Room
+                <input name="room" type="text" value={form.room} onChange={handleChange} placeholder="Bedroom" />
+              </label>
+              <div className="form-row">
+                <label>
+                  Normal Low (bpm)
+                  <input name="normalLow" type="number" value={form.normalLow} onChange={handleChange} min="1" max="59" />
+                </label>
+                <label>
+                  Normal High (bpm)
+                  <input name="normalHigh" type="number" value={form.normalHigh} onChange={handleChange} min="2" max="60" />
+                </label>
+              </div>
+
+              {statusMessage ? <p className="form-message">{statusMessage}</p> : null}
+
+              <div className="form-actions">
+                <button type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? 'Saving...' : modalMode === 'reassign' ? 'Update Assignment' : 'Assign Device'}
+                </button>
+                <button type="button" className="ghost-btn" onClick={closeModal}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+export default AdminDevicesPage

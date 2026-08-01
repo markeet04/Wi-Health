@@ -1,4 +1,4 @@
-export const adminPages = ['Statistics / Analytics', 'User Management', 'Alerts', 'Complaints', 'Settings']
+export const adminPages = ['Statistics / Analytics', 'User Management', 'Device Assignment', 'Alerts', 'Complaints', 'Settings']
 
 export const fleetDevices = [
   { id: 'WH-2101', patient: 'Patient A', status: 'Online', health: 'Good', updated: '10s ago' },
