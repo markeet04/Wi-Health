@@ -201,31 +201,15 @@ void main() {
     await tester.pump(const Duration(seconds: 5));
   });
 
-  testWidgets('a new patient can be added from home', (tester) async {
+  testWidgets('home opens the device request screen', (tester) async {
     await login(tester);
 
-    await tester.tap(find.text('＋ Add Patient'));
+    // Devices are provisioned/assigned by an admin now; from home the user can
+    // only *request* a device — the old local "add patient" flow is gone.
+    await tester.tap(find.text('＋ Request Device'));
     await pumpTransition(tester);
-    expect(find.text('Add Patient'), findsOneWidget);
-
-    await tester.enterText(
-        find.widgetWithText(TextField, 'e.g. Ayesha Khan'), 'Bilal Ahmed');
-    await tester.enterText(
-        find.widgetWithText(TextField, 'e.g. Bedroom, Nursery'), 'Study');
-
-    final scrollable = find
-        .descendant(
-            of: find.byType(Scaffold).last, matching: find.byType(Scrollable))
-        .first;
-    await tester.scrollUntilVisible(find.text('Add & Calibrate'), 120,
-        scrollable: scrollable);
-    await tester.tap(find.text('Add & Calibrate'));
-    await pumpTransition(tester);
-
-    // Back on home — the new patient card is in the list.
-    expect(find.text('Bilal Ahmed'), findsWidgets);
-    // Let the confirmation snackbar timer expire before the test ends.
-    await tester.pump(const Duration(seconds: 5));
+    expect(find.text('Request a Device'), findsWidgets);
+    expect(find.widgetWithText(TextField, 'e.g. Ayesha Khan'), findsOneWidget);
   });
 
   testWidgets('login rejects wrong credentials with an error banner',
@@ -324,24 +308,9 @@ void main() {
   });
 
   group('AppState', () {
-    test('addPatient links a new stable patient', () {
-      final app = buildMockAppState();
-      final before = app.patients.length;
-      app.addPatient(
-        name: 'Bilal Ahmed',
-        relation: 'Brother',
-        room: 'Study',
-        deviceId: 'WH-S3-D4E1',
-        normalLow: 12,
-        normalHigh: 20,
-      );
-      expect(app.patients.length, before + 1);
-      final p = app.patients.last;
-      expect(p.name, 'Bilal Ahmed');
-      expect(p.status, BreathStatus.normal);
-      expect(p.nightlyAvg.length, 7);
-      expect(p.bpm, inInclusiveRange(12, 20));
-    });
+    // Note: patients are no longer added locally in the app — devices are
+    // assigned by an admin (or requested via the device-request flow), so the
+    // old addPatient() path was removed along with its test.
 
     test('mock data wires three patients with valid contracts', () {
       final app = buildMockAppState();

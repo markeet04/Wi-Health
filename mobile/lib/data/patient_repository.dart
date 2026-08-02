@@ -165,13 +165,8 @@ class PatientRepository {
       _refreshAppState();
     }));
 
-    _subscriptions.add(_db.ref('devices/$deviceId/sessions').onValue.listen((event) {
-      if (_disposed) return;
-      _deviceStates[deviceId]!.sessions
-        ..clear()
-        ..addAll(_castMap(event.snapshot.value as Map?));
-      _refreshAppState();
-    }));
+    /* Sessions are derived from the logged history samples (see _buildSessions),
+     * so there is no /sessions listener — the firmware never writes that node. */
 
     _refreshAppState();
   }
@@ -599,34 +594,56 @@ class PatientRepository {
     return alerts;
   }
 
+  /// A run of logged samples with no gap larger than this is one "session".
+  /// (The app logs a valid bpm ~once/min, so a >10 min gap means monitoring
+  /// stopped — a new session starts after it.)
+  static const int _sessionGapMs = 10 * 60 * 1000;
+  static const int _historyLogMs = 60 * 1000; // matches _historyThrottleMs
+  static const int _minSessionSamples = 3;    // ignore trivially short runs
+
+  /// Derive sessions from the real logged bpm history (devices/$id/history).
+  /// The firmware only streams live/alerts; history is what the app records, so
+  /// sessions are computed from those samples rather than a device-written node
+  /// — honest, and needs no firmware change.
   List<SessionLog> _buildSessions() {
     final sessions = <SessionLog>[];
     for (final entry in _deviceStates.entries) {
       final deviceId = entry.key;
-      final rawSessions = entry.value.sessions;
       final patientName = entry.value.meta['patientName']?.toString() ?? deviceId;
+      final samples = _historySamples(entry.value.history); // sorted (ts, bpm)
+      if (samples.length < _minSessionSamples) continue;
 
-      for (final sessionEntry in rawSessions.entries) {
-        final raw = _castMap(sessionEntry.value as Map?);
-        final startedAt = _toInt(raw['startedAt']);
-        final endedAt = _toInt(raw['endedAt']);
-        if (endedAt == 0 || startedAt == 0) {
-          continue;
-        }
-        final avgBpm = _toDouble(raw['avgBpm']);
-        final minBpm = _toInt(raw['minBpm']);
-        final maxBpm = _toInt(raw['maxBpm']);
-        final quality = _toInt(raw['validPct']);
-        final day = _formatDayLabel(endedAt);
-        final time = _formatTime(endedAt);
-        final duration = _formatDuration(endedAt - startedAt);
+      var runStart = 0;
+      for (var i = 1; i <= samples.length; i++) {
+        final boundary = i == samples.length ||
+            (samples[i].key - samples[i - 1].key) > _sessionGapMs;
+        if (!boundary) continue;
+
+        final run = samples.sublist(runStart, i);
+        runStart = i;
+        if (run.length < _minSessionSamples) continue;
+
+        final startedAt = run.first.key;
+        final endedAt = run.last.key;
+        final bpms = run.map((e) => e.value).toList();
+        final avgBpm = bpms.reduce((a, b) => a + b) / bpms.length;
+        final minBpm = bpms.reduce((a, b) => a < b ? a : b).round();
+        final maxBpm = bpms.reduce((a, b) => a > b ? a : b).round();
+
+        // Continuity %: how much of the span actually produced valid samples
+        // (100% = a sample every ~minute with no dropouts).
+        final spanMs = endedAt - startedAt;
+        final expected = spanMs <= 0 ? run.length : (spanMs ~/ _historyLogMs) + 1;
+        final quality = ((run.length / (expected == 0 ? 1 : expected)) * 100)
+            .clamp(0, 100)
+            .round();
 
         sessions.add(SessionLog(
           patientId: deviceId,
-          title: 'Night session — $patientName',
-          day: day,
-          time: time,
-          duration: duration,
+          title: 'Monitoring — $patientName',
+          day: _formatDayLabel(endedAt),
+          time: _formatTime(endedAt),
+          duration: _formatDuration(spanMs),
           avgBpm: avgBpm,
           minBpm: minBpm,
           maxBpm: maxBpm,
@@ -957,7 +974,6 @@ class _DeviceState {
   final Map<String, dynamic> live = {};
   final Map<String, dynamic> health = {};
   final Map<String, dynamic> alerts = {};
-  final Map<String, dynamic> sessions = {};
   // Real bpm samples logged over time: { epochMs(String) : bpm(num) }.
   // Populated from devices/$id/history and used to compute the History charts.
   final Map<String, dynamic> history = {};
