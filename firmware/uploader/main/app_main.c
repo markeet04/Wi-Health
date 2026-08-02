@@ -143,13 +143,40 @@ static void espnow_init(void)
 {
     ESP_ERROR_CHECK(esp_now_init());
     ESP_ERROR_CHECK(esp_now_register_recv_cb(espnow_recv_cb));
-    /* add the broadcast address as a peer so we can receive broadcast frames */
+    /* add the broadcast address as a peer so we can receive AND send broadcast
+     * frames (send is used for the channel-announce beacon below). */
     esp_now_peer_info_t peer = {0};
     memset(peer.peer_addr, 0xff, 6);
     peer.channel = 0;              /* 0 = current channel */
     peer.ifidx = WIFI_IF_STA;
     peer.encrypt = false;
     esp_now_add_peer(&peer);
+}
+
+/* Channel-announce beacon. Once joined to the router, the uploader's radio sits
+ * on the router's channel; broadcast that channel so the TX + RX retune to it.
+ * Sent repeatedly (they may boot/hear later) but cheaply. This is what makes
+ * the rig work on ANY home WiFi, not just channel 6. */
+static void channel_beacon_task(void *arg)
+{
+    (void)arg;
+    static const uint8_t BCAST[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+    while (1) {
+        /* only meaningful once associated (radio parked on router's channel) */
+        if (xEventGroupGetBits(s_wifi_events) & WIFI_CONNECTED_BIT) {
+            uint8_t primary = 0;
+            wifi_second_chan_t second;
+            if (esp_wifi_get_channel(&primary, &second) == ESP_OK && primary >= 1) {
+                wihealth_ctrl_t ctrl = {
+                    .magic = WIHEALTH_CTRL_MAGIC,
+                    .version = WIHEALTH_CTRL_VER,
+                    .channel = primary,
+                };
+                esp_now_send(BCAST, (const uint8_t *)&ctrl, sizeof(ctrl));
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(2000));
+    }
 }
 
 /* ================= Firebase HTTPS ================= */
@@ -423,4 +450,5 @@ void app_main(void)
     espnow_init();
 
     xTaskCreate(uploader_task, "uploader", 8192, NULL, 5, NULL);
+    xTaskCreate(channel_beacon_task, "chan_beacon", 3072, NULL, 4, NULL);
 }

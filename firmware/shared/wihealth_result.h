@@ -52,4 +52,22 @@ typedef struct __attribute__((packed)) {
     uint32_t seq;           /* monotonic window index */
 } wihealth_result_t;        /* 24 bytes; ESP-NOW payload limit is 250 */
 
+/* --- Channel auto-discovery control packet ---
+ * The uploader joins the user's router (any channel), reads the channel it
+ * landed on, and broadcasts this packet so the TX + RX (which start on their
+ * compiled default channel) retune to match — removing the "router must be on
+ * channel 6" constraint. Its own magic keeps it distinct from result packets.
+ * FALLBACK-FIRST: if no control packet is ever heard, TX/RX simply stay on the
+ * compiled default channel and behave exactly as before. */
+#define WIHEALTH_CTRL_MAGIC 0x57484354u   /* "WHCT" */
+#define WIHEALTH_CTRL_VER   1
+
+typedef struct __attribute__((packed)) {
+    uint32_t magic;         /* WIHEALTH_CTRL_MAGIC */
+    uint8_t  version;       /* WIHEALTH_CTRL_VER */
+    uint8_t  channel;       /* WiFi channel the uploader (router) is on, 1..13 */
+    uint8_t  reserved0;
+    uint8_t  reserved1;
+} wihealth_ctrl_t;          /* 8 bytes */
+
 #endif /* WIHEALTH_RESULT_H */

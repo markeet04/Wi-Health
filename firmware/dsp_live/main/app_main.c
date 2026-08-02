@@ -124,12 +124,106 @@ static void wifi_init(void)
     ESP_ERROR_CHECK(esp_wifi_set_mac(WIFI_IF_STA, CONFIG_CSI_SEND_MAC));
 }
 
+/* ===== Channel auto-discovery (RX side) =====
+ * The uploader is associated to the user's router and can only send ESP-NOW on
+ * that (unknown) channel. The RX is free (promiscuous, not associated), so IT
+ * does the finding: it sweeps channels 1..13 listening for the uploader's
+ * channel-announce beacon. On hearing it, the RX LOCKS to that channel and
+ * re-broadcasts the beacon so the TX (sweeping the same way) converges too.
+ *
+ * FALLBACK-FIRST: sweeping only runs until a beacon is found OR a bounded
+ * timeout elapses. If no uploader is present, the RX settles back on the
+ * compiled default channel and behaves exactly as before (TX+RX both default). */
+static volatile uint8_t s_active_channel = CONFIG_LESS_INTERFERENCE_CHANNEL;
+static volatile bool    s_channel_locked = false;
+static volatile bool    s_channel_settled = false;  /* scan finished (locked or default) */
+
+/* How long to sweep for the uploader before giving up and using the default. */
+#define CHAN_SCAN_TIMEOUT_MS  60000
+#define CHAN_SCAN_DWELL_MS      600
+#define CHAN_MAX                 13
+
+static void set_channel(uint8_t ch)
+{
+    if (ch < 1 || ch > CHAN_MAX) return;
+    if (esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE) == ESP_OK) {
+        s_active_channel = ch;
+    }
+}
+
+/* Lock onto the announced channel (called from the ESP-NOW recv cb). */
+static void lock_channel(uint8_t ch)
+{
+    if (ch < 1 || ch > CHAN_MAX) return;
+    if (!s_channel_locked || ch != s_active_channel) {
+        set_channel(ch);
+        s_channel_locked = true;
+        ESP_LOGW(TAG, "channel auto-discovery: locked to channel %u", (unsigned)ch);
+    }
+}
+
+/* Re-broadcast the locked channel so the TX converges to us. */
+static void rebroadcast_channel(uint8_t ch)
+{
+    static const uint8_t BCAST[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+    wihealth_ctrl_t ctrl = {
+        .magic = WIHEALTH_CTRL_MAGIC,
+        .version = WIHEALTH_CTRL_VER,
+        .channel = ch,
+    };
+    esp_now_send(BCAST, (const uint8_t *)&ctrl, sizeof(ctrl));
+}
+
+/* ESP-NOW receive: the RX only cares about the channel-announce beacon. */
+static void espnow_recv_cb(const esp_now_recv_info_t *info, const uint8_t *data, int len)
+{
+    (void)info;
+    if (len < (int)sizeof(wihealth_ctrl_t)) return;
+    const wihealth_ctrl_t *c = (const wihealth_ctrl_t *)data;
+    if (c->magic != WIHEALTH_CTRL_MAGIC || c->version != WIHEALTH_CTRL_VER) return;
+    lock_channel(c->channel);
+}
+
+/* Sweep channels until a beacon locks us, or the timeout elapses (then settle on
+ * the compiled default). Runs once at startup; exits as soon as we're locked so
+ * CSI capture proceeds undisturbed on the found channel. */
+static void channel_scan_task(void *arg)
+{
+    (void)arg;
+    int64_t start = esp_timer_get_time();
+    uint8_t ch = 1;
+    while (!s_channel_locked &&
+           (esp_timer_get_time() - start) < (int64_t)CHAN_SCAN_TIMEOUT_MS * 1000) {
+        set_channel(ch);
+        vTaskDelay(pdMS_TO_TICKS(CHAN_SCAN_DWELL_MS));
+        ch = (ch % CHAN_MAX) + 1;
+    }
+    if (!s_channel_locked) {
+        /* No uploader found — behave like the original single-channel rig. */
+        set_channel(CONFIG_LESS_INTERFERENCE_CHANNEL);
+        ESP_LOGW(TAG, "channel auto-discovery: no beacon, using default channel %d",
+                 CONFIG_LESS_INTERFERENCE_CHANNEL);
+    }
+    /* Let CSI buffering/DSP proceed now that the channel is fixed. */
+    s_channel_settled = true;
+    if (s_channel_locked) {
+        /* Help the TX converge: re-announce the locked channel for a few seconds. */
+        for (int i = 0; i < 20; ++i) {
+            rebroadcast_channel(s_active_channel);
+            vTaskDelay(pdMS_TO_TICKS(500));
+        }
+    }
+    vTaskDelete(NULL);
+}
+
 static void wifi_esp_now_init(esp_now_peer_info_t peer)
 {
     ESP_ERROR_CHECK(esp_now_init());
     ESP_ERROR_CHECK(esp_now_set_pmk((uint8_t *)"pmk1234567890123"));
     ESP_ERROR_CHECK(esp_now_add_peer(&peer));
-    /* S3: per-peer rate cfg faults; use the global API (RX only receives). */
+    /* Listen for the uploader's channel-announce beacon (auto-discovery). */
+    ESP_ERROR_CHECK(esp_now_register_recv_cb(espnow_recv_cb));
+    /* S3: per-peer rate cfg faults; use the global API. */
     ESP_ERROR_CHECK(esp_wifi_config_espnow_rate(WIFI_IF_STA, CONFIG_ESP_NOW_RATE));
 }
 
@@ -269,6 +363,17 @@ static void dsp_task(void *arg)
 {
     (void)arg;
     dsp_motion_init(&s_gate);
+
+    /* Wait until channel auto-discovery has settled so we buffer on the correct
+     * channel. Then flush any packets the ring caught while sweeping (they may
+     * be from other channels / stale). */
+    while (!s_channel_settled) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    if (xSemaphoreTake(s_ring_mtx, portMAX_DELAY) == pdTRUE) {
+        s_head = 0;
+        xSemaphoreGive(s_ring_mtx);
+    }
 
     /* Buffers in PSRAM. The raw window is now int16 (not float) — ~4x smaller
      * — and feeds dsp_frontend directly, which emits only the small resampled
@@ -508,13 +613,21 @@ void app_main(void)
 
     wifi_init();
     esp_now_peer_info_t peer = {
-        .channel   = CONFIG_LESS_INTERFERENCE_CHANNEL,
+        /* channel=0 => send on the current radio channel, so result packets
+         * still reach the uploader after channel auto-discovery retunes us. */
+        .channel   = 0,
         .ifidx     = WIFI_IF_STA,
         .encrypt   = false,
         .peer_addr = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
     };
     wifi_esp_now_init(peer);
     wifi_csi_init();
+
+    /* Channel auto-discovery: sweep for the uploader's beacon before we start
+     * trusting CSI. Settles on the found channel, or the default if no uploader.
+     * The DSP task waits for s_channel_settled so buffering starts on the right
+     * channel instead of collecting cross-channel garbage while sweeping. */
+    xTaskCreatePinnedToCore(channel_scan_task, "chan_scan", 3072, NULL, 6, NULL, 0);
 
     /* DSP on the APP cpu (core 1) so the WiFi/CSI callback on core 0 is never
      * stalled by the ~0.4 s per-window compute. */

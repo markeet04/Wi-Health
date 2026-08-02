@@ -20,6 +20,11 @@
 #include "esp_wifi.h"
 #include "esp_netif.h"
 #include "esp_now.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+#include "wihealth_result.h"   /* channel-announce control packet contract */
 
 /* ============ wi-netra project knobs ============ */
 #define WIFI_CHANNEL            6     /* MUST match rx_csi_recv */
@@ -115,11 +120,69 @@ static void wifi_init(void)
     ESP_ERROR_CHECK(esp_wifi_set_mac(WIFI_IF_STA, CONFIG_CSI_SEND_MAC));
 }
 
+/* ===== Channel auto-discovery (TX side) =====
+ * The TX starts on the compiled default channel and sweeps 1..13 listening for
+ * the channel-announce beacon (from the uploader on the router channel, and/or
+ * the RX re-broadcasting after it locks). On hearing it, the TX locks to that
+ * channel so it and the RX end up matched for CSI. FALLBACK-FIRST: if no beacon
+ * arrives within the timeout, the TX settles on the compiled default (original
+ * single-channel behaviour). */
+static volatile uint8_t s_active_channel = CONFIG_LESS_INTERFERENCE_CHANNEL;
+static volatile bool    s_channel_locked = false;
+
+#define CHAN_SCAN_TIMEOUT_MS  60000
+#define CHAN_SCAN_DWELL_MS      600
+#define CHAN_MAX                 13
+
+static void set_channel(uint8_t ch)
+{
+    if (ch < 1 || ch > CHAN_MAX) return;
+    if (esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE) == ESP_OK) {
+        s_active_channel = ch;
+    }
+}
+
+/* Listen for the channel-announce beacon and lock onto it. */
+static void espnow_recv_cb(const esp_now_recv_info_t *info, const uint8_t *data, int len)
+{
+    (void)info;
+    if (len < (int)sizeof(wihealth_ctrl_t)) return;
+    const wihealth_ctrl_t *c = (const wihealth_ctrl_t *)data;
+    if (c->magic != WIHEALTH_CTRL_MAGIC || c->version != WIHEALTH_CTRL_VER) return;
+    if (c->channel < 1 || c->channel > CHAN_MAX) return;
+    if (!s_channel_locked || c->channel != s_active_channel) {
+        set_channel(c->channel);
+        s_channel_locked = true;
+        ESP_LOGW(TAG, "channel auto-discovery: locked to channel %u", (unsigned)c->channel);
+    }
+}
+
+/* Sweep channels until a beacon locks us, or the timeout elapses (then default). */
+static void channel_scan_task(void *arg)
+{
+    (void)arg;
+    int64_t start = esp_timer_get_time();
+    uint8_t ch = 1;
+    while (!s_channel_locked &&
+           (esp_timer_get_time() - start) < (int64_t)CHAN_SCAN_TIMEOUT_MS * 1000) {
+        set_channel(ch);
+        vTaskDelay(pdMS_TO_TICKS(CHAN_SCAN_DWELL_MS));
+        ch = (ch % CHAN_MAX) + 1;
+    }
+    if (!s_channel_locked) {
+        set_channel(CONFIG_LESS_INTERFERENCE_CHANNEL);
+        ESP_LOGW(TAG, "channel auto-discovery: no beacon, using default channel %d",
+                 CONFIG_LESS_INTERFERENCE_CHANNEL);
+    }
+    vTaskDelete(NULL);
+}
+
 static void wifi_esp_now_init(esp_now_peer_info_t peer)
 {
     ESP_ERROR_CHECK(esp_now_init());
     ESP_ERROR_CHECK(esp_now_set_pmk((uint8_t *)"pmk1234567890123"));
     ESP_ERROR_CHECK(esp_now_add_peer(&peer));
+    ESP_ERROR_CHECK(esp_now_register_recv_cb(espnow_recv_cb));
 #if CONFIG_IDF_TARGET_ESP32S3
     /* ESP32-S3: esp_now_set_peer_rate_config() is declared but its internal
      * per-peer rate-control path is not implemented in the S3 Wi-Fi driver,
@@ -149,14 +212,22 @@ void app_main(void)
 
     wifi_init();
 
-    /* Broadcast peer — no router involved. */
+    /* Broadcast peer — no router involved. channel=0 means "use the current
+     * radio channel", so ESP-NOW sends follow the radio if it retunes for
+     * channel auto-discovery (otherwise sends would stay pinned to the default
+     * channel after a retune). */
     esp_now_peer_info_t peer = {
-        .channel   = CONFIG_LESS_INTERFERENCE_CHANNEL,
+        .channel   = 0,
         .ifidx     = WIFI_IF_STA,
         .encrypt   = false,
         .peer_addr = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
     };
     wifi_esp_now_init(peer);
+
+    /* Channel auto-discovery: sweep for the beacon and lock the CSI channel to
+     * match the RX. Sends keep going during the sweep (harmless); once locked,
+     * TX + RX are on the same channel. */
+    xTaskCreate(channel_scan_task, "chan_scan", 3072, NULL, 6, NULL);
 
     ESP_LOGI(TAG, "================ CSI SEND ================");
     ESP_LOGI(TAG, "channel: %d, rate: %d pkt/s, bw: HT20, mac: " MACSTR,
