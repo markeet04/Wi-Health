@@ -25,6 +25,7 @@
 #include "freertos/queue.h"
 
 #include "nvs_flash.h"
+#include "nvs.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_wifi.h"
@@ -51,6 +52,39 @@ static QueueHandle_t s_pkt_q;
 /* cached Firebase ID token (refreshed periodically) */
 static char s_id_token[2048];
 static int64_t s_id_token_deadline_us = 0;   /* re-auth after this */
+
+/* long-lived Firebase refresh token. Obtained once (first boot, from the
+ * custom-token exchange), persisted in NVS, and thereafter used to mint fresh
+ * ID tokens indefinitely so the device never needs the (1h-expiry) custom
+ * token again — no re-flashing required for long-running deployments. */
+static char s_refresh_token[512];
+
+#define NVS_NS         "wihealth"
+#define NVS_KEY_REFRESH "refresh_tok"
+
+/* Load the saved refresh token into s_refresh_token. Returns true if one was
+ * present. */
+static bool load_refresh_token(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) return false;
+    size_t len = sizeof(s_refresh_token);
+    esp_err_t err = nvs_get_str(h, NVS_KEY_REFRESH, s_refresh_token, &len);
+    nvs_close(h);
+    return err == ESP_OK && s_refresh_token[0] != 0;
+}
+
+/* Persist a refresh token to NVS so it survives reboots. */
+static void save_refresh_token(const char *token)
+{
+    strncpy(s_refresh_token, token, sizeof(s_refresh_token) - 1);
+    s_refresh_token[sizeof(s_refresh_token) - 1] = 0;
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_set_str(h, NVS_KEY_REFRESH, s_refresh_token);
+    nvs_commit(h);
+    nvs_close(h);
+}
 
 /* ================= WiFi ================= */
 static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data)
@@ -132,7 +166,69 @@ static esp_err_t http_ev(esp_http_client_event_t *e)
     return ESP_OK;
 }
 
-/* signInWithCustomToken -> fill s_id_token. Returns true on success. */
+/* Exchange the long-lived refresh token for a fresh ID token via the Secure
+ * Token service. This is the steady-state path once first-boot provisioning has
+ * stored a refresh token — it works indefinitely and never touches the (1h)
+ * custom token. Returns true on success; false lets the caller fall back to the
+ * custom-token exchange (e.g. if the refresh token was revoked). */
+static bool firebase_refresh(void)
+{
+    if (s_refresh_token[0] == 0) return false;
+
+    char url[256];
+    snprintf(url, sizeof(url),
+        "https://securetoken.googleapis.com/v1/token?key=%s", CFG_WEB_API_KEY);
+
+    /* form-encoded body: grant_type=refresh_token&refresh_token=<token> */
+    static char body[768];
+    snprintf(body, sizeof(body),
+        "grant_type=refresh_token&refresh_token=%s", s_refresh_token);
+
+    static char rbuf[3072];
+    resp_t r = { rbuf, 0, sizeof(rbuf) };
+    esp_http_client_config_t cfg = {
+        .url = url, .method = HTTP_METHOD_POST,
+        .event_handler = http_ev, .user_data = &r,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+        .timeout_ms = 15000,
+        .buffer_size = 3072,
+        .buffer_size_tx = 1024,
+    };
+    esp_http_client_handle_t c = esp_http_client_init(&cfg);
+    esp_http_client_set_header(c, "Content-Type", "application/x-www-form-urlencoded");
+    esp_http_client_set_post_field(c, body, strlen(body));
+    esp_err_t err = esp_http_client_perform(c);
+    int status = esp_http_client_get_status_code(c);
+    esp_http_client_cleanup(c);
+    if (err != ESP_OK || status != 200) {
+        ESP_LOGW(TAG, "token refresh failed err=%s status=%d (will try custom token)",
+                 esp_err_to_name(err), status);
+        return false;
+    }
+
+    /* Secure Token returns snake_case: id_token, expires_in, refresh_token. */
+    cJSON *root = cJSON_Parse(rbuf);
+    if (!root) return false;
+    cJSON *idt = cJSON_GetObjectItem(root, "id_token");
+    cJSON *exp = cJSON_GetObjectItem(root, "expires_in");
+    cJSON *rft = cJSON_GetObjectItem(root, "refresh_token");
+    bool ok = cJSON_IsString(idt);
+    if (ok) {
+        strncpy(s_id_token, idt->valuestring, sizeof(s_id_token) - 1);
+        int secs = (cJSON_IsString(exp)) ? atoi(exp->valuestring) : 3600;
+        s_id_token_deadline_us = esp_timer_get_time() + (int64_t)(secs - 300) * 1000000LL;
+        /* Secure Token may hand back a rotated refresh token — persist it. */
+        if (cJSON_IsString(rft) && strcmp(rft->valuestring, s_refresh_token) != 0) {
+            save_refresh_token(rft->valuestring);
+        }
+        ESP_LOGI(TAG, "token refreshed, id token valid ~%ds", secs);
+    }
+    cJSON_Delete(root);
+    return ok;
+}
+
+/* signInWithCustomToken -> fill s_id_token AND persist the refresh token for
+ * subsequent boots. Returns true on success. */
 static bool firebase_auth(void)
 {
     char url[256];
@@ -169,16 +265,33 @@ static bool firebase_auth(void)
     if (!root) return false;
     cJSON *idt = cJSON_GetObjectItem(root, "idToken");
     cJSON *exp = cJSON_GetObjectItem(root, "expiresIn");
+    cJSON *rft = cJSON_GetObjectItem(root, "refreshToken");
     bool ok = cJSON_IsString(idt);
     if (ok) {
         strncpy(s_id_token, idt->valuestring, sizeof(s_id_token) - 1);
         int secs = (cJSON_IsString(exp)) ? atoi(exp->valuestring) : 3600;
         /* refresh 5 min before expiry */
         s_id_token_deadline_us = esp_timer_get_time() + (int64_t)(secs - 300) * 1000000LL;
-        ESP_LOGI(TAG, "authenticated, id token valid ~%ds", secs);
+        /* Persist the refresh token so future boots/refreshes never need the
+         * custom token again (it expires ~1h after minting). */
+        if (cJSON_IsString(rft)) {
+            save_refresh_token(rft->valuestring);
+            ESP_LOGI(TAG, "authenticated + refresh token stored, id token valid ~%ds", secs);
+        } else {
+            ESP_LOGW(TAG, "authenticated but no refresh token in response");
+        }
     }
     cJSON_Delete(root);
     return ok;
+}
+
+/* Ensure we hold a valid ID token. Strategy: prefer the stored refresh token
+ * (steady state, works forever); only fall back to the custom token on true
+ * first boot or if refresh fails. Returns true if s_id_token is usable. */
+static bool firebase_ensure_token(void)
+{
+    if (firebase_refresh()) return true;   /* no-op + false if no refresh token yet */
+    return firebase_auth();                /* first boot, or refresh token rejected */
 }
 
 /* PUT/POST json to an RTDB path (path like "devices/<id>/live" or "alerts/<id>").
@@ -219,7 +332,24 @@ static void uploader_task(void *arg)
     (void)arg;
     /* wait for wifi */
     xEventGroupWaitBits(s_wifi_events, WIFI_CONNECTED_BIT, pdFALSE, pdTRUE, portMAX_DELAY);
-    if (!firebase_auth()) ESP_LOGE(TAG, "initial auth failed; will retry on first packet");
+
+    const bool had_refresh = (s_refresh_token[0] != 0);
+    if (!firebase_ensure_token()) {
+        if (!had_refresh) {
+            /* True first boot and the custom token didn't work — almost always
+             * because it expired (~1h after minting). Make this loud so it's
+             * obvious a re-mint + reflash is needed, not a mystery. */
+            ESP_LOGE(TAG, "======================================================");
+            ESP_LOGE(TAG, "FIRST-BOOT AUTH FAILED. The device custom token in");
+            ESP_LOGE(TAG, "config.h is likely expired (custom tokens last ~1h");
+            ESP_LOGE(TAG, "after minting). Re-mint the token and reflash once;");
+            ESP_LOGE(TAG, "after a successful first boot a refresh token is");
+            ESP_LOGE(TAG, "stored and the device runs indefinitely.");
+            ESP_LOGE(TAG, "======================================================");
+        } else {
+            ESP_LOGE(TAG, "initial token refresh failed; will retry on first packet");
+        }
+    }
 
     wihealth_result_t p;
     char json[512];
@@ -227,9 +357,11 @@ static void uploader_task(void *arg)
     while (1) {
         if (xQueueReceive(s_pkt_q, &p, portMAX_DELAY) != pdTRUE) continue;
 
-        /* (re)authenticate if the token is missing or near expiry */
+        /* (re)authenticate if the token is missing or near expiry. Uses the
+         * refresh token in steady state, so this keeps working past the custom
+         * token's 1h lifetime. */
         if (s_id_token[0] == 0 || esp_timer_get_time() > s_id_token_deadline_us) {
-            if (!firebase_auth()) { vTaskDelay(pdMS_TO_TICKS(2000)); continue; }
+            if (!firebase_ensure_token()) { vTaskDelay(pdMS_TO_TICKS(2000)); continue; }
         }
 
         /* live write */
@@ -275,6 +407,15 @@ void app_main(void)
 
     printf("\n===== wi-health uploader (ESP32) =====\n");
     printf("device: %s\n", CFG_DEVICE_ID);
+
+    /* Load a previously-stored refresh token, if any. Present => this device has
+     * booted successfully before and can renew ID tokens without the custom
+     * token. Absent => first boot, we'll exchange the custom token once. */
+    if (load_refresh_token()) {
+        printf("auth: using stored refresh token (custom token not needed)\n");
+    } else {
+        printf("auth: first boot — will exchange the custom token once\n");
+    }
 
     s_pkt_q = xQueueCreate(8, sizeof(wihealth_result_t));
 
