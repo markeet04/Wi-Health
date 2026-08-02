@@ -6,15 +6,33 @@ const BASE_URL = import.meta.env.VITE_ADMIN_API_BASE_URL ?? '/api'
 // when Firebase env is missing there. The frontend never fakes a session or
 // dashboard data — a rejected login is a rejected login.
 
+// Firebase ID tokens expire ~1h. When an authorized request comes back 401,
+// we transparently exchange the stored refresh token for a fresh ID token
+// (POST /auth/refresh) and retry the original request ONCE — so the admin stays
+// signed in without a manual re-login. `_retry` guards against loops.
 async function request(path, options = {}) {
+  // Prefer the freshest stored token over a (possibly stale) caller-passed one,
+  // so after a silent refresh subsequent calls don't keep hitting 401s with an
+  // expired token held in App state.
+  const authToken = options.token
+    ? (localStorage.getItem(TOKEN_KEY) ?? options.token)
+    : undefined
+
   const response = await fetch(`${BASE_URL}${path}`, {
     headers: {
       'Content-Type': 'application/json',
-      ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       ...(options.headers ?? {}),
     },
     ...options,
   })
+
+  if (response.status === 401 && options.token && !options._retry) {
+    const freshToken = await tryRefreshToken()
+    if (freshToken) {
+      return request(path, { ...options, token: freshToken, _retry: true })
+    }
+  }
 
   const payload = await response.json().catch(() => null)
 
@@ -25,9 +43,47 @@ async function request(path, options = {}) {
   return payload
 }
 
+// Exchange the stored refresh token for a fresh session. Returns the new access
+// token on success, or null (caller then surfaces the 401 / bounces to login).
+// Serialized so concurrent 401s don't fire multiple refreshes.
+let refreshInFlight = null
+async function tryRefreshToken() {
+  const stored = readSession()
+  if (!stored?.refreshToken) return null
+
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      try {
+        const res = await fetch(`${BASE_URL}/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken: stored.refreshToken }),
+        })
+        if (!res.ok) return null
+        const session = await res.json().catch(() => null)
+        if (!session?.accessToken) return null
+        persistSession(session)
+        return session.accessToken
+      } catch {
+        return null
+      } finally {
+        refreshInFlight = null
+      }
+    })()
+  }
+  return refreshInFlight
+}
+
 function persistSession(session) {
-  localStorage.setItem(SESSION_KEY, JSON.stringify(session))
-  localStorage.setItem(TOKEN_KEY, session.accessToken)
+  // Preserve an existing refresh token if this session object doesn't carry one
+  // (e.g. /auth/session returns the user + access token but no refresh token).
+  const existing = readSession()
+  const merged = {
+    ...session,
+    refreshToken: session.refreshToken ?? existing?.refreshToken,
+  }
+  localStorage.setItem(SESSION_KEY, JSON.stringify(merged))
+  localStorage.setItem(TOKEN_KEY, merged.accessToken)
 }
 
 function clearSession() {

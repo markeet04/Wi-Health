@@ -27,6 +27,14 @@ export class AppController {
     return this.appService.login(body)
   }
 
+  @Post('auth/refresh')
+  refresh(@Body() body: { refreshToken?: string }) {
+    if (!body?.refreshToken) {
+      throw new UnauthorizedException('Refresh token is required.')
+    }
+    return this.appService.refreshSession(body.refreshToken)
+  }
+
   @Get('auth/session')
   async session(@Headers('authorization') authorization?: string) {
     const token = bearerToken(authorization)

@@ -84,6 +84,10 @@ type AdminUser = {
 
 type AdminSession = {
   accessToken: string
+  // Long-lived refresh token (Firebase). Sent to the panel so it can obtain a
+  // fresh ID token when the ~1h one expires, instead of forcing a re-login.
+  // Absent in demo mode.
+  refreshToken?: string
   source: 'firebase' | 'demo'
   user: AdminUser
 }
@@ -1211,6 +1215,7 @@ export class AppService implements OnModuleInit {
 
     const payload = (await response.json().catch(() => ({}))) as {
       idToken?: string
+      refreshToken?: string
       localId?: string
       displayName?: string
       email?: string
@@ -1228,6 +1233,7 @@ export class AppService implements OnModuleInit {
 
     return {
       accessToken: payload.idToken,
+      refreshToken: payload.refreshToken,
       source: 'firebase',
       user: {
         uid: payload.localId,
@@ -1235,6 +1241,57 @@ export class AppService implements OnModuleInit {
         email: payload.email ?? email,
         role: 'admin',
       },
+    }
+  }
+
+  /**
+   * Exchange a Firebase refresh token for a fresh admin session (new ID token).
+   * Used by the panel when its ID token expires (~1h) so the admin stays signed
+   * in. Verifies the fresh token still carries the admin role.
+   */
+  async refreshSession(refreshToken: string): Promise<AdminSession> {
+    if (!this.firebaseEnabled()) {
+      // Demo mode has no real tokens; just return the demo session.
+      return demoSession
+    }
+    const token = (refreshToken ?? '').trim()
+    if (!token) {
+      throw new UnauthorizedException('Refresh token is required.')
+    }
+    const apiKey = process.env.FIREBASE_WEB_API_KEY
+    if (!apiKey) {
+      throw new UnauthorizedException('Firebase API key is not configured.')
+    }
+
+    const response = await fetch(
+      `https://securetoken.googleapis.com/v1/token?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(token)}`,
+      },
+    )
+
+    const payload = (await response.json().catch(() => ({}))) as {
+      id_token?: string
+      refresh_token?: string
+      error?: { message?: string } | string
+    }
+
+    if (!response.ok || !payload.id_token) {
+      throw new UnauthorizedException('Session refresh failed. Please sign in again.')
+    }
+
+    const user = await this.verifyFirebaseToken(payload.id_token)
+    if (user.role !== 'admin') {
+      throw new ForbiddenException('Admin role required.')
+    }
+
+    return {
+      accessToken: payload.id_token,
+      refreshToken: payload.refresh_token ?? token,
+      source: 'firebase',
+      user,
     }
   }
 
