@@ -9,5 +9,5 @@ idf_component_register(
         "${SHARED}"
     REQUIRES
         nvs_flash esp_wifi esp_event esp_netif esp_timer
-        esp_http_client esp-tls json
+        esp_http_client esp_http_server esp-tls json lwip
 )

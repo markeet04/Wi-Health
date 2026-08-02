@@ -142,6 +142,9 @@ static void set_channel(uint8_t ch)
     }
 }
 
+/* Last time we heard a channel-announce beacon (for stall/self-heal). */
+static volatile int64_t s_last_beacon_us = 0;
+
 /* Listen for the channel-announce beacon and lock onto it. */
 static void espnow_recv_cb(const esp_now_recv_info_t *info, const uint8_t *data, int len)
 {
@@ -150,6 +153,7 @@ static void espnow_recv_cb(const esp_now_recv_info_t *info, const uint8_t *data,
     const wihealth_ctrl_t *c = (const wihealth_ctrl_t *)data;
     if (c->magic != WIHEALTH_CTRL_MAGIC || c->version != WIHEALTH_CTRL_VER) return;
     if (c->channel < 1 || c->channel > CHAN_MAX) return;
+    s_last_beacon_us = esp_timer_get_time();
     if (!s_channel_locked || c->channel != s_active_channel) {
         set_channel(c->channel);
         s_channel_locked = true;
@@ -175,6 +179,30 @@ static void channel_scan_task(void *arg)
                  CONFIG_LESS_INTERFERENCE_CHANNEL);
     }
     vTaskDelete(NULL);
+}
+
+/* Self-heal: the RX re-broadcasts the channel whenever it (re)locks, so the TX
+ * hearing beacons means it's still on the right channel. If the AP roams and the
+ * RX moves, the TX stops hearing beacons — after a timeout it re-scans to
+ * re-find the (moved) channel. Plain polling task; unrelated to the IDF WDT. */
+#define BEACON_STALL_TIMEOUT_MS  20000
+static void channel_watchdog_task(void *arg)
+{
+    (void)arg;
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        if (!s_channel_locked) continue;
+        if (s_last_beacon_us == 0) continue;   /* haven't heard one yet */
+        if ((esp_timer_get_time() - s_last_beacon_us) > (int64_t)BEACON_STALL_TIMEOUT_MS * 1000) {
+            ESP_LOGW(TAG, "channel auto-discovery: no beacon for a while — re-scanning");
+            s_channel_locked = false;
+            xTaskCreate(channel_scan_task, "chan_scan", 3072, NULL, 6, NULL);
+            /* Reset the beacon clock so we give the fresh scan its full window
+             * before considering another re-scan (the scan task self-deletes;
+             * if it re-locks, espnow_recv_cb updates s_last_beacon_us). */
+            s_last_beacon_us = esp_timer_get_time();
+        }
+    }
 }
 
 static void wifi_esp_now_init(esp_now_peer_info_t peer)
@@ -228,6 +256,8 @@ void app_main(void)
      * match the RX. Sends keep going during the sweep (harmless); once locked,
      * TX + RX are on the same channel. */
     xTaskCreate(channel_scan_task, "chan_scan", 3072, NULL, 6, NULL);
+    /* Re-scan if the AP roams and beacons stop arriving (self-heal). */
+    xTaskCreate(channel_watchdog_task, "chan_wd", 3072, NULL, 4, NULL);
 
     ESP_LOGI(TAG, "================ CSI SEND ================");
     ESP_LOGI(TAG, "channel: %d, rate: %d pkt/s, bw: HT20, mac: " MACSTR,

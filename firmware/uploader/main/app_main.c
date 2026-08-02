@@ -24,6 +24,9 @@
 #include "freertos/event_groups.h"
 #include "freertos/queue.h"
 
+#include "freertos/semphr.h"
+#include "lwip/sockets.h"
+
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "esp_event.h"
@@ -32,8 +35,10 @@
 #include "esp_netif.h"
 #include "esp_now.h"
 #include "esp_http_client.h"
+#include "esp_http_server.h"
 #include "esp_crt_bundle.h"
 #include "esp_timer.h"
+#include "esp_mac.h"
 #include "cJSON.h"
 
 #include "wihealth_result.h"
@@ -87,26 +92,291 @@ static void save_refresh_token(const char *token)
 }
 
 /* ================= WiFi ================= */
+/* If saved/seed credentials can't connect after this many attempts, they're
+ * probably wrong (password changed, network gone) — clear them and reboot into
+ * the captive portal so the user can re-enter WiFi. 0 = never fall back (used
+ * during the portal's own connect, where a different recovery path applies). */
+static volatile int s_connect_attempts = 0;
+static volatile int s_max_connect_attempts = 0;   /* 0 until we're joining saved creds */
+
+static void clear_wifi_creds(void);   /* fwd */
+
 static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
-        ESP_LOGW(TAG, "wifi disconnected, retrying...");
+        if (s_max_connect_attempts > 0 &&
+            ++s_connect_attempts >= s_max_connect_attempts) {
+            /* Saved credentials aren't working — wipe them and restart so the
+             * next boot opens the setup portal for fresh WiFi. */
+            ESP_LOGE(TAG, "wifi: saved credentials failed %d times — clearing and "
+                          "rebooting into setup mode", s_connect_attempts);
+            clear_wifi_creds();
+            esp_restart();
+        }
+        ESP_LOGW(TAG, "wifi disconnected, retrying... (%d/%d)",
+                 s_connect_attempts, s_max_connect_attempts);
         esp_wifi_connect();
         xEventGroupClearBits(s_wifi_events, WIFI_CONNECTED_BIT);
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ESP_LOGI(TAG, "wifi connected, got IP");
+        s_connect_attempts = 0;
         xEventGroupSetBits(s_wifi_events, WIFI_CONNECTED_BIT);
     }
 }
 
+/* ================= WiFi credential storage (NVS) ================= */
+#define NVS_KEY_SSID "wifi_ssid"
+#define NVS_KEY_PASS "wifi_pass"
+
+/* Load saved WiFi creds from NVS. Returns true if an SSID was present. */
+static bool load_wifi_creds(char *ssid, size_t ssid_len, char *pass, size_t pass_len)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) return false;
+    ssid[0] = 0; pass[0] = 0;
+    size_t sl = ssid_len, pl = pass_len;
+    esp_err_t e1 = nvs_get_str(h, NVS_KEY_SSID, ssid, &sl);
+    nvs_get_str(h, NVS_KEY_PASS, pass, &pl);   /* password may be empty (open AP) */
+    nvs_close(h);
+    return e1 == ESP_OK && ssid[0] != 0;
+}
+
+static void save_wifi_creds(const char *ssid, const char *pass)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_set_str(h, NVS_KEY_SSID, ssid);
+    nvs_set_str(h, NVS_KEY_PASS, pass ? pass : "");
+    nvs_commit(h);
+    nvs_close(h);
+}
+
+/* Erase saved WiFi creds so the next boot re-opens the setup portal. */
+static void clear_wifi_creds(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_erase_key(h, NVS_KEY_SSID);
+    nvs_erase_key(h, NVS_KEY_PASS);
+    nvs_commit(h);
+    nvs_close(h);
+}
+
+/* Join a given SSID/password as STA. */
+static void wifi_join(const char *ssid, const char *pass)
+{
+    wifi_config_t wc = {0};
+    strncpy((char *)wc.sta.ssid, ssid, sizeof(wc.sta.ssid) - 1);
+    strncpy((char *)wc.sta.password, pass ? pass : "", sizeof(wc.sta.password) - 1);
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wc));
+    ESP_ERROR_CHECK(esp_wifi_start());
+}
+
+/* ================= Captive-portal setup ================= */
+/* Set when the user submits WiFi via the portal — unblocks wifi_init_sta. */
+static EventGroupHandle_t s_portal_events;
+#define PORTAL_DONE_BIT BIT0
+static char s_portal_ssid[33];
+static char s_portal_pass[65];
+
+/* URL-decode form field in place (handles %XX and '+'). */
+static void url_decode(char *s)
+{
+    char *o = s;
+    for (char *p = s; *p; ++p) {
+        if (*p == '+') { *o++ = ' '; }
+        else if (*p == '%' && p[1] && p[2]) {
+            int hi = (p[1] <= '9') ? p[1]-'0' : (p[1]|0x20)-'a'+10;
+            int lo = (p[2] <= '9') ? p[2]-'0' : (p[2]|0x20)-'a'+10;
+            *o++ = (char)((hi << 4) | lo);
+            p += 2;
+        } else { *o++ = *p; }
+    }
+    *o = 0;
+}
+
+/* Build the setup page: a form listing scanned nearby networks + a password. */
+static esp_err_t portal_root_handler(httpd_req_t *req)
+{
+    /* scan for nearby APs to populate the dropdown */
+    uint16_t n = 0;
+    wifi_scan_config_t scan = { .show_hidden = false };
+    esp_wifi_scan_start(&scan, true);
+    esp_wifi_scan_get_ap_num(&n);
+    if (n > 20) n = 20;
+    wifi_ap_record_t *aps = calloc(n ? n : 1, sizeof(wifi_ap_record_t));
+    uint16_t got = n;
+    if (aps) esp_wifi_scan_get_ap_records(&got, aps);
+
+    static char page[4096];
+    int off = snprintf(page, sizeof(page),
+        "<!doctype html><html><head><meta name=viewport content='width=device-width,initial-scale=1'>"
+        "<title>Wi-Health Setup</title><style>"
+        "body{font-family:sans-serif;background:#0f1a17;color:#e6f0ea;margin:0;padding:24px}"
+        ".c{max-width:420px;margin:auto}h1{font-size:20px}label{display:block;margin:14px 0 6px;font-size:13px;color:#9fb0a4}"
+        "select,input{width:100%%;padding:11px;border-radius:10px;border:1px solid #2b3a33;background:#1b2420;color:#e6f0ea;font-size:15px;box-sizing:border-box}"
+        "button{width:100%%;margin-top:20px;padding:13px;border:0;border-radius:10px;background:#4f7d63;color:#fff;font-size:16px;font-weight:600}"
+        "</style></head><body><div class=c><h1>Connect Wi-Health to WiFi</h1>"
+        "<form method=POST action=/save><label>WiFi network</label><select name=ssid>");
+    for (uint16_t i = 0; i < got && off < (int)sizeof(page) - 200; ++i) {
+        off += snprintf(page + off, sizeof(page) - off,
+            "<option value=\"%s\">%s</option>", (char *)aps[i].ssid, (char *)aps[i].ssid);
+    }
+    snprintf(page + off, sizeof(page) - off,
+        "</select><label>Password</label><input name=pass type=password placeholder='WiFi password'>"
+        "<button type=submit>Connect</button></form>"
+        "<p style='color:#9fb0a4;font-size:12px;margin-top:18px'>The device will join this network and start monitoring.</p>"
+        "</div></body></html>");
+    free(aps);
+
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_sendstr(req, page);
+    return ESP_OK;
+}
+
+/* Handle the submitted form: stash creds, confirm, and signal completion. */
+static esp_err_t portal_save_handler(httpd_req_t *req)
+{
+    char buf[256];
+    int len = httpd_req_recv(req, buf, sizeof(buf) - 1);
+    if (len <= 0) { httpd_resp_send_500(req); return ESP_FAIL; }
+    buf[len] = 0;
+
+    /* parse "ssid=...&pass=..." */
+    char ssid[33] = {0}, pass[65] = {0};
+    char *ps = strstr(buf, "ssid=");
+    char *pp = strstr(buf, "pass=");
+    if (ps) {
+        ps += 5; char *end = strchr(ps, '&'); if (end) *end = 0;
+        strncpy(ssid, ps, sizeof(ssid) - 1); url_decode(ssid);
+    }
+    if (pp) {
+        pp += 5; char *end = strchr(pp, '&'); if (end) *end = 0;
+        strncpy(pass, pp, sizeof(pass) - 1); url_decode(pass);
+    }
+    if (ssid[0] == 0) { httpd_resp_send_500(req); return ESP_FAIL; }
+
+    strncpy(s_portal_ssid, ssid, sizeof(s_portal_ssid) - 1);
+    strncpy(s_portal_pass, pass, sizeof(s_portal_pass) - 1);
+
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_sendstr(req,
+        "<!doctype html><html><head><meta name=viewport content='width=device-width,initial-scale=1'>"
+        "<style>body{font-family:sans-serif;background:#0f1a17;color:#e6f0ea;text-align:center;padding:60px 24px}</style></head>"
+        "<body><h2>Connecting…</h2><p>Wi-Health is joining your WiFi. You can close this page.</p></body></html>");
+
+    /* signal the main flow to stop the portal and join */
+    xEventGroupSetBits(s_portal_events, PORTAL_DONE_BIT);
+    return ESP_OK;
+}
+
+/* Captive-portal redirect: answer 404s with a redirect to the setup page so the
+ * phone's "sign in to WiFi" popup appears automatically. */
+static esp_err_t portal_redirect_handler(httpd_req_t *req, httpd_err_code_t err)
+{
+    (void)err;
+    httpd_resp_set_status(req, "302 Found");
+    httpd_resp_set_hdr(req, "Location", "http://192.168.4.1/");
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
+/* Minimal DNS server: answer every query with the SoftAP IP (192.168.4.1) so
+ * any domain the phone probes resolves to us — this triggers the captive-portal
+ * popup on both Android and iOS. */
+static void dns_hijack_task(void *arg)
+{
+    (void)arg;
+    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (sock < 0) { vTaskDelete(NULL); return; }
+    struct sockaddr_in sa = { .sin_family = AF_INET, .sin_port = htons(53), .sin_addr.s_addr = htonl(INADDR_ANY) };
+    if (bind(sock, (struct sockaddr *)&sa, sizeof(sa)) < 0) { close(sock); vTaskDelete(NULL); return; }
+
+    uint8_t pkt[512];
+    while (1) {
+        struct sockaddr_in from; socklen_t fl = sizeof(from);
+        int r = recvfrom(sock, pkt, sizeof(pkt), 0, (struct sockaddr *)&from, &fl);
+        if (r < 12) continue;
+        /* build a response: copy query, set QR=1, one answer -> 192.168.4.1 */
+        pkt[2] |= 0x80;          /* QR */
+        pkt[3] |= 0x00;
+        pkt[6] = 0; pkt[7] = 1;  /* ANCOUNT = 1 */
+        int qlen = r;            /* question ends at r (single question typical) */
+        if (qlen + 16 > (int)sizeof(pkt)) continue;
+        uint8_t *a = pkt + qlen;
+        *a++ = 0xC0; *a++ = 0x0C;                 /* name ptr to question */
+        *a++ = 0x00; *a++ = 0x01;                 /* type A */
+        *a++ = 0x00; *a++ = 0x01;                 /* class IN */
+        *a++ = 0x00; *a++ = 0x00; *a++ = 0x00; *a++ = 0x3C; /* TTL 60 */
+        *a++ = 0x00; *a++ = 0x04;                 /* RDLENGTH 4 */
+        *a++ = 192; *a++ = 168; *a++ = 4; *a++ = 1;
+        sendto(sock, pkt, qlen + 16, 0, (struct sockaddr *)&from, fl);
+    }
+}
+
+/* Bring up the SoftAP + captive portal and block until the user submits WiFi. */
+static void run_captive_portal(void)
+{
+    ESP_LOGI(TAG, "wifi setup: starting hotspot 'Wi-Health-Setup' — connect to it to configure WiFi");
+    s_portal_events = xEventGroupCreate();
+
+    /* SoftAP + STA (STA needed so we can scan for the user's networks). */
+    wifi_config_t ap = {0};
+    strncpy((char *)ap.ap.ssid, "Wi-Health-Setup", sizeof(ap.ap.ssid) - 1);
+    ap.ap.ssid_len = strlen("Wi-Health-Setup");
+    ap.ap.channel = 1;
+    ap.ap.max_connection = 4;
+    ap.ap.authmode = WIFI_AUTH_OPEN;
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap));
+    ESP_ERROR_CHECK(esp_wifi_start());
+
+    /* DNS hijack -> captive-portal popup. */
+    xTaskCreate(dns_hijack_task, "dns_hijack", 3072, NULL, 4, NULL);
+
+    /* HTTP server with the form + a catch-all redirect. */
+    httpd_handle_t server = NULL;
+    httpd_config_t hc = HTTPD_DEFAULT_CONFIG();
+    hc.max_uri_handlers = 4;
+    hc.lru_purge_enable = true;
+    ESP_ERROR_CHECK(httpd_start(&server, &hc));
+    httpd_uri_t root = { .uri = "/", .method = HTTP_GET, .handler = portal_root_handler };
+    httpd_uri_t save = { .uri = "/save", .method = HTTP_POST, .handler = portal_save_handler };
+    httpd_register_uri_handler(server, &root);
+    httpd_register_uri_handler(server, &save);
+    httpd_register_err_handler(server, HTTPD_404_NOT_FOUND, portal_redirect_handler);
+
+    /* Wait for the user to submit. */
+    xEventGroupWaitBits(s_portal_events, PORTAL_DONE_BIT, pdTRUE, pdTRUE, portMAX_DELAY);
+
+    /* Give the "Connecting…" page a moment to flush, then tear down the portal. */
+    vTaskDelay(pdMS_TO_TICKS(800));
+    httpd_stop(server);
+    esp_wifi_stop();
+
+    /* Persist + join the chosen network. */
+    save_wifi_creds(s_portal_ssid, s_portal_pass);
+    ESP_LOGI(TAG, "wifi setup: saved '%s', joining...", s_portal_ssid);
+    wifi_join(s_portal_ssid, s_portal_pass);
+}
+
+/*
+ * WiFi bring-up with NVS-first credentials + captive-portal onboarding:
+ *   1. NVS has creds (set before, via portal or seed) -> join directly.
+ *   2. else config.h has a non-empty SSID (dev seed)  -> join + save to NVS.
+ *   3. else -> run the captive portal ('Wi-Health-Setup'); the user picks their
+ *      WiFi on an auto-popup page, we save it and join. No app, no reflash.
+ */
 static void wifi_init_sta(void)
 {
     s_wifi_events = xEventGroupCreate();
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     esp_netif_create_default_wifi_sta();
+    esp_netif_create_default_wifi_ap();   /* for the setup hotspot */
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
@@ -116,15 +386,23 @@ static void wifi_init_sta(void)
     ESP_ERROR_CHECK(esp_event_handler_instance_register(
         IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL, NULL));
 
-    wifi_config_t wc = {0};
-    strncpy((char *)wc.sta.ssid, CFG_WIFI_SSID, sizeof(wc.sta.ssid) - 1);
-    strncpy((char *)wc.sta.password, CFG_WIFI_PASS, sizeof(wc.sta.password) - 1);
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wc));
-    ESP_ERROR_CHECK(esp_wifi_start());
-    /* ESP-NOW receive also works while joined as STA; the router should ideally
-     * be on the CSI channel (6) so the uploader hears RX without channel-hop
-     * loss — see the coexistence note in the findings. */
+    char ssid[33], pass[65];
+    if (load_wifi_creds(ssid, sizeof(ssid), pass, sizeof(pass))) {
+        ESP_LOGI(TAG, "wifi: using saved credentials for '%s'", ssid);
+        /* If these NVS creds keep failing, fall back to the setup portal. Only
+         * armed for NVS creds — a bad config.h seed would loop, so it isn't. */
+        s_max_connect_attempts = 15;   /* ~15 * ~2.4s ≈ 35 s before giving up */
+        wifi_join(ssid, pass);
+        return;
+    }
+    if (CFG_WIFI_SSID[0] != 0) {
+        ESP_LOGI(TAG, "wifi: using config.h seed credentials");
+        save_wifi_creds(CFG_WIFI_SSID, CFG_WIFI_PASS);   /* so it sticks in NVS */
+        wifi_join(CFG_WIFI_SSID, CFG_WIFI_PASS);
+        return;
+    }
+    /* No creds anywhere — onboard the user via the captive portal (blocks). */
+    run_captive_portal();
 }
 
 /* ================= ESP-NOW receive ================= */

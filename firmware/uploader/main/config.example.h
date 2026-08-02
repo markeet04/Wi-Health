@@ -10,7 +10,11 @@
 #ifndef UPLOADER_CONFIG_H
 #define UPLOADER_CONFIG_H
 
-/* --- WiFi (2.4 GHz; ideally on channel 6 to match the CSI/ESP-NOW channel) --- */
+/* --- WiFi (2.4 GHz; the rig auto-discovers the channel, so any channel works) ---
+ * These are a developer SEED: if set, the uploader joins them on first boot and
+ * saves them to NVS. Leave CFG_WIFI_SSID EMPTY ("") to skip the seed and instead
+ * start SoftAP provisioning ('Wi-Health-Setup') so an end user can enter their
+ * own WiFi with no reflashing. Once provisioned (either way), creds live in NVS. */
 #define CFG_WIFI_SSID    "your-ssid"
 #define CFG_WIFI_PASS    "your-password"
 
