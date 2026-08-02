@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import './AdminDevicesPage.css'
-import { assignAdminDevice, fetchAdminDevices, unassignAdminDevice } from '../../../services/adminApi'
+import {
+  assignAdminDevice,
+  declineAdminDeviceRequest,
+  fetchAdminDevices,
+  unassignAdminDevice,
+} from '../../../services/adminApi'
 
 const emptyForm = {
   deviceId: '',
@@ -10,11 +15,13 @@ const emptyForm = {
   room: '',
   normalLow: 8,
   normalHigh: 30,
+  requestId: '',
 }
 
 function AdminDevicesPage({ accessToken }) {
   const [devices, setDevices] = useState([])
   const [appUsers, setAppUsers] = useState([])
+  const [requests, setRequests] = useState([])
   const [loading, setLoading] = useState(true)
   const [form, setForm] = useState(emptyForm)
   const [modalMode, setModalMode] = useState('assign')
@@ -32,6 +39,7 @@ function AdminDevicesPage({ accessToken }) {
     const data = await fetchAdminDevices(accessToken)
     setDevices(data?.devices ?? [])
     setAppUsers(data?.appUsers ?? [])
+    setRequests(data?.requests ?? [])
     setLoading(false)
   }
 
@@ -47,6 +55,7 @@ function AdminDevicesPage({ accessToken }) {
       if (cancelled) return
       setDevices(data?.devices ?? [])
       setAppUsers(data?.appUsers ?? [])
+      setRequests(data?.requests ?? [])
       setLoading(false)
     }
 
@@ -81,9 +90,41 @@ function AdminDevicesPage({ accessToken }) {
       room: device.room || '',
       normalLow: device.normalLow || 8,
       normalHigh: device.normalHigh || 30,
+      requestId: '',
     })
     setStatusMessage('')
     setIsModalOpen(true)
+  }
+
+  // Fulfil a device request: open the assign modal pre-filled with the
+  // requester's uid + patient details. Admin only needs to pick a device ID.
+  const openFulfilModal = (req) => {
+    setModalMode('fulfil')
+    setForm({
+      deviceId: '',
+      uid: req.uid,
+      patientName: req.patientName || '',
+      patientRelation: req.patientRelation || 'self',
+      room: req.room || '',
+      normalLow: 8,
+      normalHigh: 30,
+      requestId: req.id,
+    })
+    setStatusMessage('')
+    setIsModalOpen(true)
+  }
+
+  const declineRequest = async (req) => {
+    if (!accessToken) return
+    setIsSubmitting(true)
+    try {
+      await declineAdminDeviceRequest(accessToken, req.id)
+      await loadDevices()
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : 'Unable to decline request.')
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const closeModal = () => {
@@ -130,6 +171,7 @@ function AdminDevicesPage({ accessToken }) {
         room: form.room.trim(),
         normalLow,
         normalHigh,
+        ...(form.requestId ? { requestId: form.requestId } : {}),
       })
       setStatusMessage('Device assigned successfully.')
       closeModal()
@@ -158,6 +200,45 @@ function AdminDevicesPage({ accessToken }) {
 
   return (
     <section className="page-grid admin-devices-page page-fade">
+      {requests.length > 0 ? (
+        <div className="card card-span-3">
+          <div className="devices-header-row">
+            <h2>Pending Device Requests</h2>
+            <span className="pill">{requests.length} Pending</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Requested By</th>
+                <th>Patient</th>
+                <th>Room</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {requests.map((req) => (
+                <tr key={req.id}>
+                  <td>
+                    <div className="name-cell">
+                      <strong>{req.userName}</strong>
+                      <span>{req.userEmail}</span>
+                    </div>
+                  </td>
+                  <td>{req.patientName}{req.patientRelation ? ` · ${req.patientRelation}` : ''}</td>
+                  <td>{req.room || '-'}</td>
+                  <td>
+                    <div className="table-actions">
+                      <button type="button" className="create-btn" onClick={() => openFulfilModal(req)}>Assign Device</button>
+                      <button type="button" className="delete-btn" disabled={isSubmitting} onClick={() => declineRequest(req)}>Decline</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+
       <div className="card card-span-3">
         <div className="devices-header-row">
           <h2>Device Assignment</h2>
@@ -237,7 +318,7 @@ function AdminDevicesPage({ accessToken }) {
         <div className="modal-backdrop" onClick={closeModal}>
           <div className="modal-card" onClick={(event) => event.stopPropagation()}>
             <div className="modal-card__head">
-              <h3>{modalMode === 'reassign' ? 'Reassign Device' : 'Assign Device'}</h3>
+              <h3>{modalMode === 'reassign' ? 'Reassign Device' : modalMode === 'fulfil' ? 'Fulfil Request' : 'Assign Device'}</h3>
               <button type="button" className="ghost-btn" onClick={closeModal}>Close</button>
             </div>
 
@@ -255,7 +336,7 @@ function AdminDevicesPage({ accessToken }) {
               </label>
               <label>
                 App User
-                <select name="uid" value={form.uid} onChange={handleChange}>
+                <select name="uid" value={form.uid} onChange={handleChange} disabled={modalMode === 'fulfil'}>
                   <option value="">Select an account…</option>
                   {appUsers.map((user) => (
                     <option key={user.uid} value={user.uid}>{user.name} ({user.email})</option>
@@ -289,7 +370,7 @@ function AdminDevicesPage({ accessToken }) {
 
               <div className="form-actions">
                 <button type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? 'Saving...' : modalMode === 'reassign' ? 'Update Assignment' : 'Assign Device'}
+                  {isSubmitting ? 'Saving...' : modalMode === 'reassign' ? 'Update Assignment' : modalMode === 'fulfil' ? 'Assign & Fulfil' : 'Assign Device'}
                 </button>
                 <button type="button" className="ghost-btn" onClick={closeModal}>Cancel</button>
               </div>

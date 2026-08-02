@@ -8,6 +8,29 @@ enum AlertSeverity { urgent, warning, info }
 
 enum ComplaintStatus { open, inProgress, resolved }
 
+enum DeviceRequestStatus { pending, fulfilled, declined }
+
+/// A caretaker's request for the admin to provision + assign a device. The
+/// admin fulfils it by assigning a device (which then appears via the normal
+/// assignment listener) and marking the request fulfilled.
+class DeviceRequest {
+  DeviceRequest({
+    required this.id,
+    required this.patientName,
+    required this.patientRelation,
+    required this.room,
+    required this.status,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String patientName;
+  final String patientRelation;
+  final String room;
+  final DeviceRequestStatus status;
+  final DateTime createdAt;
+}
+
 class Patient {
   Patient({
     required this.id,
@@ -265,6 +288,49 @@ class AppState extends ChangeNotifier {
   Future<void> Function(String alertId, {required String uid})?
       dismissAlertHandler;
 
+  /// Optional handler to claim/link an admin-provisioned device to this
+  /// account. Returns null on success, or a human-readable error string.
+  /// Provided by the Firebase repository; null in mock mode.
+  Future<String?> Function({
+    required String deviceId,
+    required String patientName,
+    required String patientRelation,
+    required String room,
+  })? claimDeviceHandler;
+
+  /// Optional handler to submit a device request to the admin (request-queue
+  /// model: the admin then assigns a provisioned device to this account).
+  /// Returns null on success or an error string. Null in mock mode.
+  Future<String?> Function({
+    required String patientName,
+    required String patientRelation,
+    required String room,
+  })? requestDeviceHandler;
+
+  /// Pending/fulfilled device requests this user has made, newest first.
+  List<DeviceRequest> deviceRequests = [];
+
+  void setDeviceRequests(List<DeviceRequest> values) {
+    deviceRequests = values;
+    notifyListeners();
+  }
+
+  Future<String?> requestDevice({
+    required String patientName,
+    required String patientRelation,
+    required String room,
+  }) async {
+    final handler = requestDeviceHandler;
+    if (handler == null) {
+      return 'Device requests are only available on the live data connection.';
+    }
+    return handler(
+      patientName: patientName,
+      patientRelation: patientRelation,
+      room: room,
+    );
+  }
+
   void setPatients(List<Patient> values) {
     patients
       ..clear()
@@ -407,40 +473,28 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Links a new patient/device pair (hardcoded locally for now; later this
-  /// becomes device pairing + Firebase assignment).
-  void addPatient({
-    required String name,
-    required String relation,
-    required String room,
+  /// Claims an admin-provisioned device and links it to this account. The real
+  /// work is a Firebase transaction in the repository (see [claimDeviceHandler]),
+  /// which only succeeds if the device exists and is currently unassigned. Once
+  /// linked, the device's live data flows in through the normal listeners — the
+  /// patient is NOT fabricated locally. Returns null on success or an error
+  /// message to show the user.
+  Future<String?> claimDevice({
     required String deviceId,
-    required int normalLow,
-    required int normalHigh,
-  }) {
-    final mid = ((normalLow + normalHigh) / 2).round();
-    patients.add(Patient(
-      id: 'p${patients.length + 1}',
-      name: name,
-      relation: relation,
-      room: room,
-      deviceName: 'Wi-Health Sense 0${patients.length + 1}',
+    required String patientName,
+    required String patientRelation,
+    required String room,
+  }) async {
+    final handler = claimDeviceHandler;
+    if (handler == null) {
+      return 'Device linking is only available on the live data connection.';
+    }
+    return handler(
       deviceId: deviceId,
-      online: true,
-      signalQuality: 0.82,
-      confidence: 0.86,
-      bpm: mid,
-      status: BreathStatus.normal,
-      normalLow: normalLow,
-      normalHigh: normalHigh,
-      trend: [
-        for (var i = 0; i < 12; i++) mid + (i % 3 - 1) * 0.6,
-      ],
-      nightlyAvg: List.filled(7, mid.toDouble()),
-      distribution: const [0.03, 0.10, 0.22, 0.30, 0.22, 0.10, 0.03],
-      firmware: 'v0.4.2',
-      lastSync: 'just now',
-    ));
-    notifyListeners();
+      patientName: patientName,
+      patientRelation: patientRelation,
+      room: room,
+    );
   }
 
   void submitComplaint({

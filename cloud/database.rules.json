@@ -21,7 +21,10 @@
           ".validate": "newData.val() === 'app_user' || newData.val() === 'admin'"
         },
         "devices": {
-          ".write": "auth != null && auth.token.role === 'admin'"
+          ".write": "auth != null && (auth.token.role === 'admin' || auth.uid === $uid)",
+          "$deviceId": {
+            ".validate": "auth.token.role === 'admin' || root.child('devices').child($deviceId).child('meta').child('ownerUid').val() === auth.uid"
+          }
         }
       }
     },
@@ -31,7 +34,8 @@
       "$deviceId": {
         ".read": "auth != null && (auth.token.role === 'admin' || root.child('users').child(auth.uid).child('devices').child($deviceId).exists())",
         "meta": {
-          ".write": "auth != null && auth.token.role === 'admin'",
+          ".write": "auth != null && (auth.token.role === 'admin' || ((!data.child('ownerUid').exists() || data.child('ownerUid').val() === '') && newData.child('ownerUid').val() === auth.uid))",
+          "ownerUid": { ".validate": "auth.token.role === 'admin' || newData.val() === auth.uid" },
           "normalLow": { ".validate": "newData.isNumber() && newData.val() > 0" },
           "normalHigh": { ".validate": "newData.isNumber() && newData.val() <= 60" }
         },
@@ -47,6 +51,12 @@
         },
         "sessions": {
           ".write": "auth != null && (auth.uid === $deviceId && auth.token.device === true)"
+        },
+        "history": {
+          ".write": "auth != null && (auth.token.role === 'admin' || root.child('users').child(auth.uid).child('devices').child($deviceId).exists())",
+          "$ts": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 60"
+          }
         },
         "health": {
           ".write": "auth != null && (auth.uid === $deviceId && auth.token.device === true)"
@@ -64,6 +74,14 @@
             ".validate": "newData.isBoolean()"
           },
           "acknowledgedBy": {
+            ".write": "auth != null && (auth.token.role === 'admin' || root.child('users').child(auth.uid).child('devices').child($deviceId).exists())",
+            ".validate": "newData.val() === auth.uid"
+          },
+          "dismissed": {
+            ".write": "auth != null && (auth.token.role === 'admin' || root.child('users').child(auth.uid).child('devices').child($deviceId).exists())",
+            ".validate": "newData.isBoolean()"
+          },
+          "dismissedBy": {
             ".write": "auth != null && (auth.token.role === 'admin' || root.child('users').child(auth.uid).child('devices').child($deviceId).exists())",
             ".validate": "newData.val() === auth.uid"
           },
@@ -97,6 +115,24 @@
           }
         },
         "adminResponse": {
+          ".write": "auth != null && auth.token.role === 'admin'"
+        }
+      }
+    },
+
+    "deviceRequests": {
+      ".read": "auth != null && auth.token.role === 'admin'",
+      ".indexOn": ["uid", "status"],
+      "$requestId": {
+        ".read": "auth != null && (data.child('uid').val() === auth.uid || auth.token.role === 'admin')",
+        ".write": "auth != null && ((!data.exists() && newData.child('uid').val() === auth.uid && auth.token.role !== 'admin') || auth.token.role === 'admin')",
+        ".validate": "newData.hasChildren(['uid', 'patientName', 'status', 'createdAt'])",
+        "uid": { ".validate": "newData.val() === auth.uid || auth.token.role === 'admin'" },
+        "status": {
+          ".write": "auth != null && auth.token.role === 'admin'",
+          ".validate": "newData.val() === 'pending' || newData.val() === 'fulfilled' || newData.val() === 'declined'"
+        },
+        "fulfilledDeviceId": {
           ".write": "auth != null && auth.token.role === 'admin'"
         }
       }

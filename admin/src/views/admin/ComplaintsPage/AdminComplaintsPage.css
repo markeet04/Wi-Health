@@ -51,7 +51,7 @@
   padding: 12px 14px;
   border: 1px solid var(--border);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--surface);
   cursor: pointer;
   transition: transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease;
 }
@@ -153,7 +153,7 @@
   max-height: 88vh;
   display: flex;
   flex-direction: column;
-  background: #fbfdfb;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 22px;
   box-shadow: 0 30px 60px rgba(27, 44, 34, 0.22);
@@ -302,7 +302,7 @@
   max-width: calc(100vw - 44px);
   display: flex;
   flex-direction: column;
-  background: #fbfdfb;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 16px;
   box-shadow: 0 24px 50px rgba(27, 44, 34, 0.24);
@@ -399,7 +399,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  background: #f8faf7;
+  background: var(--surface-2);
 }
 
 .c-dock__empty {
@@ -467,7 +467,7 @@
   font-family: inherit;
   font-size: 0.88rem;
   color: var(--text);
-  background: #fff;
+  background: var(--surface);
   line-height: 1.4;
 }
 
@@ -525,3 +525,24 @@
   .complaint-item__side { display: none; }
   .c-dock { right: 12px; bottom: 12px; }
 }
+
+/* --- Dark theme: flatten light chat/detail surfaces --- */
+:root[data-theme='dark'] .is-user .c-bubble,
+:root[data-theme='dark'] .c-dock__resolve,
+:root[data-theme='dark'] .c-btn--ghost {
+  background: var(--surface-2);
+}
+
+:root[data-theme='dark'] .c-description,
+:root[data-theme='dark'] .c-dock__closed {
+  background: var(--surface-2);
+}
+
+:root[data-theme='dark'] .c-icon-btn:hover,
+:root[data-theme='dark'] .c-dock__resolve:hover {
+  background: var(--surface);
+}
+
+:root[data-theme='dark'] .tally--amber { color: #e0b877; background: #33290f; border-color: #4a3a17; }
+:root[data-theme='dark'] .tally--teal  { color: #7fc4b0; background: #10302a; border-color: #1c463d; }
+:root[data-theme='dark'] .tally--green { color: #86c98a; background: #14301a; border-color: #204a27; }

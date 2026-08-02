@@ -23,7 +23,7 @@
   padding: 32px 28px;
   border: 1px solid var(--border);
   border-radius: 24px;
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--surface);
   box-shadow: 0 28px 60px rgba(27, 44, 34, 0.12);
   backdrop-filter: blur(14px);
 }
@@ -66,7 +66,7 @@
 .inline-actions button,
 .filters button {
   border: 1px solid var(--border);
-  background: #ffffff;
+  background: var(--surface);
   color: var(--heading);
   border-radius: 12px;
   padding: 10px 12px;
@@ -136,7 +136,7 @@
 .card {
   border: 1px solid var(--border);
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.88);
+  background: var(--surface);
   box-shadow: 0 14px 30px rgba(27, 44, 34, 0.05);
   padding: 18px;
   backdrop-filter: blur(12px);
@@ -169,7 +169,7 @@
 .stat-tile {
   border: 1px solid var(--border);
   border-radius: 14px;
-  background: linear-gradient(180deg, #fbfcfa 0%, #f5f8f3 100%);
+  background: var(--surface-2);
   padding: 14px;
   min-height: 102px;
 }
@@ -343,7 +343,7 @@ th {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 10px 11px;
-  background: #ffffff;
+  background: var(--surface);
   font: inherit;
   color: var(--heading);
   outline: none;
@@ -480,7 +480,7 @@ th {
   padding: 12px 14px;
   border-radius: 14px;
   border: 1px solid var(--border);
-  background: #ffffff;
+  background: var(--surface);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -635,6 +635,23 @@ th {
   .patient-chip {
     flex: 1 1 calc(50% - 10px);
   }
+}
+
+/* ============ Dark theme: flatten remaining light literals ============ */
+/* Kill the light radial wash overlaying the content area. */
+:root[data-theme='dark'] .content::before {
+  background: none;
+}
+
+/* Trend-bar track that was a light grey. */
+:root[data-theme='dark'] .bar {
+  background: var(--surface-2);
+}
+
+/* Snapshot / patient-chip active gradients -> solid dark surface. */
+:root[data-theme='dark'] .stat-tile--stacked,
+:root[data-theme='dark'] .patient-chip.active {
+  background: var(--surface-2);
 }
 
 @media (max-width: 640px) {

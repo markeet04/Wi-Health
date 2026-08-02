@@ -4,8 +4,8 @@ import '../auth/roles.dart';
 import '../models.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
-import 'add_patient_screen.dart';
 import 'auth/login_screen.dart';
+import 'link_device_screen.dart';
 import 'devices_screen.dart';
 import 'settings_screen.dart';
 import 'support_screen.dart';
@@ -102,7 +102,7 @@ class ProfileScreen extends StatelessWidget {
                       iconColor: WiColors.primary,
                       iconBackground: WiColors.primarySoft,
                       title: 'Personal Information',
-                      onTap: () {},
+                      onTap: () => _personalInfoSheet(context),
                     ),
                     const Divider(height: 1, indent: 52),
                     ListRow(
@@ -110,7 +110,7 @@ class ProfileScreen extends StatelessWidget {
                       iconColor: WiColors.blue,
                       iconBackground: WiColors.blueSoft,
                       title: 'Security & Sessions',
-                      onTap: () {},
+                      onTap: () => _securitySheet(context),
                     ),
                   ],
                 ),
@@ -138,9 +138,10 @@ class ProfileScreen extends StatelessWidget {
                       icon: Icons.add_circle_outline_rounded,
                       iconColor: WiColors.violet,
                       iconBackground: WiColors.violetSoft,
-                      title: 'Pair New Device',
-                      subtitle: 'Guided 60-second setup',
-                      onTap: () => _pairSheet(context),
+                      title: 'Request a Device',
+                      subtitle: 'Ask your admin to assign a device',
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => LinkDeviceScreen(app: app))),
                     ),
                   ],
                 ),
@@ -232,7 +233,43 @@ class ProfileScreen extends StatelessWidget {
         child: Text(text, style: WiText.label),
       );
 
-  void _pairSheet(BuildContext context) {
+  // Read-only account details drawn from the signed-in AuthUser + AppState.
+  void _personalInfoSheet(BuildContext context) {
+    final user = authController.user;
+    _infoSheet(
+      context,
+      title: 'Personal Information',
+      subtitle: 'Details from your Wi-Health account.',
+      rows: [
+        ('Name', user?.name ?? app.userName),
+        ('Email', user?.email ?? app.userEmail),
+        ('Role', user?.role == UserRole.admin ? 'Admin' : 'App User'),
+        ('Patients linked', '${app.patients.length}'),
+      ],
+    );
+  }
+
+  void _securitySheet(BuildContext context) {
+    final user = authController.user;
+    _infoSheet(
+      context,
+      title: 'Security & Sessions',
+      subtitle: 'This device is signed in to the account below.',
+      rows: [
+        ('Signed in as', user?.email ?? app.userEmail),
+        ('Email verified', (user?.emailVerified ?? false) ? 'Yes' : 'No'),
+        ('Account ID', user?.uid ?? app.userId),
+        ('Session', 'Active on this device'),
+      ],
+    );
+  }
+
+  void _infoSheet(
+    BuildContext context, {
+    required String title,
+    required String subtitle,
+    required List<(String, String)> rows,
+  }) {
     showModalBottomSheet(
       context: context,
       backgroundColor: WiColors.card,
@@ -254,53 +291,31 @@ class ProfileScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 20),
-            const Text('Pair New Device', style: WiText.h2),
+            Text(title, style: WiText.h2),
             const SizedBox(height: 6),
-            Text(
-              'Place the sensor pair 1–2 m apart near the bed, then follow the guided 60-second calibration.',
-              style: WiText.body,
-            ),
+            Text(subtitle, style: WiText.body),
             const SizedBox(height: 18),
-            _step('1', 'Power on the Wi-Health Sense pair'),
-            _step('2', 'Connect it to your home WiFi'),
-            _step('3', 'Sit still for the 60 s baseline calibration'),
-            const SizedBox(height: 22),
-            PrimaryButton(
-              text: 'Start Pairing',
-              trailingArrow: false,
-              onPressed: () {
-                Navigator.of(context).pop();
-                Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => AddPatientScreen(app: app)));
-              },
-            ),
+            for (final (label, value) in rows) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(width: 130, child: Text(label, style: WiText.body)),
+                    Expanded(
+                      child: Text(value,
+                          style: WiText.title.copyWith(fontSize: 13),
+                          textAlign: TextAlign.right),
+                    ),
+                  ],
+                ),
+              ),
+              if ((label, value) != rows.last) const Divider(height: 1),
+            ],
           ],
         ),
       ),
     );
   }
 
-  Widget _step(String n, String text) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 7),
-      child: Row(
-        children: [
-          Container(
-            width: 26,
-            height: 26,
-            decoration: const BoxDecoration(
-                color: WiColors.primarySoft, shape: BoxShape.circle),
-            alignment: Alignment.center,
-            child: Text(n,
-                style: const TextStyle(
-                    color: WiColors.primaryDeep,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 12)),
-          ),
-          const SizedBox(width: 12),
-          Expanded(child: Text(text, style: WiText.body)),
-        ],
-      ),
-    );
-  }
 }

@@ -60,7 +60,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         ],
                       ),
                       const SizedBox(height: 16),
-                      WeekBars(values: p.nightlyAvg),
+                      if (p.nightlyAvg.any((v) => v > 0))
+                        WeekBars(values: p.nightlyAvg)
+                      else
+                        _chartEmpty('History builds as the device runs — '
+                            'no readings recorded in the last 7 days yet.'),
                     ],
                   ),
                 ),
@@ -72,10 +76,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       Text('RATE DISTRIBUTION · SHARE OF TIME',
                           style: WiText.label),
                       const SizedBox(height: 16),
-                      DistributionBars(
-                        values: p.distribution,
-                        bucketLabels: _buckets(p),
-                      ),
+                      if (p.distribution.any((v) => v > 0))
+                        DistributionBars(
+                          values: p.distribution,
+                          bucketLabels: _buckets(p),
+                        )
+                      else
+                        _chartEmpty('Not enough readings yet to show a '
+                            'distribution.'),
                     ],
                   ),
                 ),
@@ -116,6 +124,20 @@ class _HistoryScreenState extends State<HistoryScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _chartEmpty(String message) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 18),
+      child: Row(
+        children: [
+          const Icon(Icons.insights_outlined,
+              color: WiColors.inkFaint, size: 20),
+          const SizedBox(width: 10),
+          Expanded(child: Text(message, style: WiText.caption)),
+        ],
+      ),
     );
   }
 

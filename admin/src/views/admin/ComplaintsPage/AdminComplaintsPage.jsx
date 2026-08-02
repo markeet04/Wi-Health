@@ -96,7 +96,7 @@ function StatusPill({ status }) {
   return <span className={`c-pill c-pill--${meta.tone}`}>{meta.label}</span>
 }
 
-function AdminComplaintsPage({ complaints = [], accessToken, onComplaintsChanged }) {
+function AdminComplaintsPage({ complaints = [], accessToken, onComplaintsChanged, refreshIntervalSeconds = 5 }) {
   const [complaintState, setComplaintState] = useState(() => (complaints ?? []).map(normalizeComplaint))
   const [detailId, setDetailId] = useState(null)      // complaint open in the detail modal
   const [chatId, setChatId] = useState(null)          // complaint open in the docked chat
@@ -135,9 +135,10 @@ function AdminComplaintsPage({ complaints = [], accessToken, onComplaintsChanged
 
   useEffect(() => {
     if (!onComplaintsChanged) return undefined
-    const timer = window.setInterval(() => onComplaintsChanged(), 5000)
+    const intervalMs = Math.max(1, refreshIntervalSeconds) * 1000
+    const timer = window.setInterval(() => onComplaintsChanged(), intervalMs)
     return () => window.clearInterval(timer)
-  }, [onComplaintsChanged])
+  }, [onComplaintsChanged, refreshIntervalSeconds])
 
   const detailComplaint = useMemo(
     () => complaintState.find((complaint) => complaint.id === detailId) ?? null,

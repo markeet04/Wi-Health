@@ -189,4 +189,17 @@ export class AppController {
 
     return this.appService.unassignDevice(token, deviceId)
   }
+
+  @Post('admin/device-requests/:requestId/decline')
+  declineDeviceRequest(
+    @Param('requestId') requestId: string,
+    @Headers('authorization') authorization?: string,
+  ) {
+    const token = bearerToken(authorization)
+    if (!token) {
+      throw new UnauthorizedException('Missing bearer token.')
+    }
+
+    return this.appService.declineDeviceRequest(token, requestId)
+  }
 }

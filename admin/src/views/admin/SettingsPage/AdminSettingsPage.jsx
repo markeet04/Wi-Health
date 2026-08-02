@@ -1,21 +1,45 @@
 import { useEffect, useState } from 'react'
 import './AdminSettingsPage.css'
 import { fetchAdminSettings, updateAdminSettings } from '../../../services/adminApi'
+import { usePreferences } from '../../../context/PreferencesContext'
 
+const THEME_OPTIONS = [
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+  { value: 'system', label: 'System' },
+]
+
+// Only settings the app actually consumes live here. Landing Page sets which
+// page opens on sign-in (App.jsx); Refresh Interval drives the live-data poll
+// (Complaints page). Anything the system doesn't read was removed so every
+// control on this page has a real effect.
 const emptySettings = {
-  alertThresholds: {
-    tachypneaBpm: 22,
-    bradypneaBpm: 10,
-    apneaTriggerSeconds: 20,
-  },
-  defaultRoleForNewInvite: 'app_user',
-  requireEmailVerification: true,
-  passwordResetWindowMinutes: 30,
   refreshIntervalSeconds: 5,
   landingPagePreference: 'Statistics / Analytics',
 }
 
+const LANDING_PAGES = [
+  'Statistics / Analytics',
+  'User Management',
+  'Device Assignment',
+  'Alerts',
+  'Complaints',
+  'Settings',
+]
+
 function AdminSettingsPage({ accessToken }) {
+  const {
+    theme,
+    setTheme,
+    fontScale,
+    increaseFont,
+    decreaseFont,
+    resetFont,
+    fontMin,
+    fontMax,
+  } = usePreferences()
+  const fontPercent = Math.round(fontScale * 100)
+
   const [settings, setSettings] = useState(emptySettings)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -34,7 +58,10 @@ function AdminSettingsPage({ accessToken }) {
       try {
         const nextSettings = await fetchAdminSettings(accessToken)
         if (!cancelled && nextSettings) {
-          setSettings(nextSettings)
+          setSettings({
+            refreshIntervalSeconds: nextSettings.refreshIntervalSeconds ?? emptySettings.refreshIntervalSeconds,
+            landingPagePreference: nextSettings.landingPagePreference ?? emptySettings.landingPagePreference,
+          })
         }
       } catch {
         if (!cancelled) {
@@ -56,23 +83,7 @@ function AdminSettingsPage({ accessToken }) {
   const handleChange = (field, value) => {
     setMessage('')
     setError('')
-
-    if (field.startsWith('alertThresholds.')) {
-      const key = field.split('.')[1]
-      setSettings((current) => ({
-        ...current,
-        alertThresholds: {
-          ...current.alertThresholds,
-          [key]: Number(value),
-        },
-      }))
-      return
-    }
-
-    setSettings((current) => ({
-      ...current,
-      [field]: value,
-    }))
+    setSettings((current) => ({ ...current, [field]: value }))
   }
 
   const handleSubmit = async (event) => {
@@ -89,7 +100,10 @@ function AdminSettingsPage({ accessToken }) {
 
     try {
       const nextSettings = await updateAdminSettings(accessToken, settings)
-      setSettings(nextSettings)
+      setSettings({
+        refreshIntervalSeconds: nextSettings.refreshIntervalSeconds ?? settings.refreshIntervalSeconds,
+        landingPagePreference: nextSettings.landingPagePreference ?? settings.landingPagePreference,
+      })
       setMessage('Preferences saved successfully.')
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to save preferences.')
@@ -99,77 +113,77 @@ function AdminSettingsPage({ accessToken }) {
   }
 
   return (
-    <section className="page-grid admin-settings-page page-fade">
-      <form className="settings-layout" onSubmit={handleSubmit}>
-        <div className="card settings-panel">
-          <h2>Alert Defaults</h2>
-          <div className="stacked-form">
-            <label>
-              Tachypnea Threshold (bpm)
-              <input
-                type="number"
-                value={settings.alertThresholds.tachypneaBpm}
-                onChange={(event) => handleChange('alertThresholds.tachypneaBpm', event.target.value)}
-              />
-            </label>
-            <label>
-              Bradypnea Threshold (bpm)
-              <input
-                type="number"
-                value={settings.alertThresholds.bradypneaBpm}
-                onChange={(event) => handleChange('alertThresholds.bradypneaBpm', event.target.value)}
-              />
-            </label>
-            <label>
-              Apnea Trigger Duration (sec)
-              <input
-                type="number"
-                value={settings.alertThresholds.apneaTriggerSeconds}
-                onChange={(event) => handleChange('alertThresholds.apneaTriggerSeconds', event.target.value)}
-              />
-            </label>
+    <section className="admin-settings-page page-fade">
+      <div className="settings-grid">
+      <div className="card settings-panel">
+        <h2>Appearance</h2>
+        <div className="stacked-form settings-form-content">
+          <div className="appearance-field">
+            <span className="appearance-label">Theme</span>
+            <div className="theme-toggle" role="group" aria-label="Theme">
+              {THEME_OPTIONS.map((option) => (
+                <button
+                  type="button"
+                  key={option.value}
+                  className={theme === option.value ? 'theme-toggle__btn is-active' : 'theme-toggle__btn'}
+                  onClick={() => setTheme(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
 
-        <div className="card settings-panel">
-          <h2>Role and Account Settings</h2>
-          <div className="stacked-form">
-            <label>
-              Default Role for New Invite
-              <select
-                value={settings.defaultRoleForNewInvite}
-                onChange={(event) => handleChange('defaultRoleForNewInvite', event.target.value)}
+          <div className="appearance-field">
+            <span className="appearance-label">Text Size</span>
+            <div className="font-controls">
+              <button
+                type="button"
+                className="font-btn"
+                onClick={decreaseFont}
+                disabled={fontScale <= fontMin + 0.001}
+                aria-label="Decrease text size"
               >
-                <option value="app_user">App User</option>
-                <option value="admin">Admin</option>
-              </select>
-            </label>
-            <label>
-              Require Email Verification
-              <select
-                value={settings.requireEmailVerification ? 'Yes' : 'No'}
-                onChange={(event) => handleChange('requireEmailVerification', event.target.value === 'Yes')}
+                A−
+              </button>
+              <span className="font-value">{fontPercent}%</span>
+              <button
+                type="button"
+                className="font-btn"
+                onClick={increaseFont}
+                disabled={fontScale >= fontMax - 0.001}
+                aria-label="Increase text size"
               >
-                <option value="Yes">Yes</option>
-                <option value="No">No</option>
-              </select>
-            </label>
-            <label>
-              Password Reset Window (min)
-              <input
-                type="number"
-                value={settings.passwordResetWindowMinutes}
-                onChange={(event) => handleChange('passwordResetWindowMinutes', Number(event.target.value))}
-              />
-            </label>
+                A+
+              </button>
+              <button type="button" className="font-reset" onClick={resetFont}>
+                Reset
+              </button>
+            </div>
           </div>
-        </div>
 
-        <div className="card settings-panel">
+          <p className="settings-hint">
+            Appearance changes apply instantly and are saved on this browser.
+          </p>
+        </div>
+      </div>
+
+      <form className="card settings-panel settings-form-card" onSubmit={handleSubmit}>
           <h2>Panel Preferences</h2>
           <div className="stacked-form settings-form-content">
             <label>
-              Refresh Interval
+              Landing Page
+              <select
+                value={settings.landingPagePreference}
+                onChange={(event) => handleChange('landingPagePreference', event.target.value)}
+              >
+                {LANDING_PAGES.map((page) => (
+                  <option key={page} value={page}>{page}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Live Refresh Interval
               <select
                 value={settings.refreshIntervalSeconds}
                 onChange={(event) => handleChange('refreshIntervalSeconds', Number(event.target.value))}
@@ -179,19 +193,11 @@ function AdminSettingsPage({ accessToken }) {
                 <option value={30}>30 seconds</option>
               </select>
             </label>
-            <label>
-              Landing Page
-              <select
-                value={settings.landingPagePreference}
-                onChange={(event) => handleChange('landingPagePreference', event.target.value)}
-              >
-                <option value="Statistics / Analytics">Statistics / Analytics</option>
-                <option value="User Management">User Management</option>
-                <option value="Alerts">Alerts</option>
-                <option value="Complaints">Complaints</option>
-                <option value="Settings">Settings</option>
-              </select>
-            </label>
+
+            <p className="settings-hint">
+              Landing Page sets which screen opens when you sign in. Live Refresh Interval
+              controls how often live data (e.g. the complaints queue) re-syncs from the backend.
+            </p>
 
             <div className="settings-actions">
               <button type="submit" disabled={saving || loading}>
@@ -203,8 +209,8 @@ function AdminSettingsPage({ accessToken }) {
             {message ? <p className="settings-message success-message">{message}</p> : null}
             {error ? <p className="settings-message error-message">{error}</p> : null}
           </div>
-        </div>
       </form>
+      </div>
     </section>
   )
 }

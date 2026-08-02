@@ -4,7 +4,7 @@ import '../theme.dart';
 import '../widgets/charts.dart';
 import '../widgets/common.dart';
 import '../widgets/logo.dart';
-import 'add_patient_screen.dart';
+import 'link_device_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({
@@ -18,9 +18,9 @@ class HomeScreen extends StatelessWidget {
   final ValueChanged<int> onOpenLive;
   final ValueChanged<int> onOpenTab;
 
-  void _addPatient(BuildContext context) {
+  void _linkDevice(BuildContext context) {
     Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => AddPatientScreen(app: app)));
+        MaterialPageRoute(builder: (_) => LinkDeviceScreen(app: app)));
   }
 
   @override
@@ -44,8 +44,8 @@ class HomeScreen extends StatelessWidget {
                 const SizedBox(height: 24),
                 SectionHeader(
                   title: 'Monitored Patients',
-                  actionText: '＋ Add Patient',
-                  onAction: () => _addPatient(context),
+                  actionText: '＋ Request Device',
+                  onAction: () => _linkDevice(context),
                 ),
                 for (var i = 0; i < app.patients.length; i++) ...[
                   _patientCard(app.patients[i], i),
@@ -89,30 +89,39 @@ class HomeScreen extends StatelessWidget {
                 fontWeight: FontWeight.w800,
                 color: WiColors.ink)),
         const Spacer(),
-        const StatusPill(
-          text: 'LIVE',
-          color: WiColors.green,
-          background: WiColors.greenSoft,
-          dot: true,
-        ),
+        // Reflects real liveness: LIVE only when at least one device is online,
+        // otherwise OFFLINE — not a static badge.
+        Builder(builder: (_) {
+          final anyOnline = app.patients.any((p) => p.online);
+          return StatusPill(
+            text: anyOnline ? 'LIVE' : 'OFFLINE',
+            color: anyOnline ? WiColors.green : WiColors.inkFaint,
+            background: anyOnline ? WiColors.greenSoft : WiColors.field,
+            dot: true,
+          );
+        }),
         const SizedBox(width: 10),
-        Stack(
-          clipBehavior: Clip.none,
-          children: [
-            const Icon(Icons.notifications_none_rounded,
-                color: WiColors.inkSoft, size: 23),
-            if (app.unacknowledgedUrgent > 0)
-              Positioned(
-                right: 1,
-                top: 1,
-                child: Container(
-                  width: 8,
-                  height: 8,
-                  decoration: const BoxDecoration(
-                      color: WiColors.red, shape: BoxShape.circle),
+        GestureDetector(
+          onTap: () => onOpenTab(1),
+          behavior: HitTestBehavior.opaque,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              const Icon(Icons.notifications_none_rounded,
+                  color: WiColors.inkSoft, size: 23),
+              if (app.unacknowledgedUrgent > 0)
+                Positioned(
+                  right: 1,
+                  top: 1,
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                        color: WiColors.red, shape: BoxShape.circle),
+                  ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ],
     );

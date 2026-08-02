@@ -202,7 +202,7 @@ class LiveScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('LAST SESSION', style: WiText.label),
+          Text('RECENT TREND', style: WiText.label),
           const SizedBox(height: 14),
           Row(
             children: [

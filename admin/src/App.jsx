@@ -12,10 +12,18 @@ import AdminStatisticsPage from './views/admin/StatisticsPage/AdminStatisticsPag
 import AdminUsersPage from './views/admin/UsersPage/AdminUsersPage'
 import {
   fetchAdminData,
+  fetchAdminSettings,
   restoreAdminSession,
   signInAdmin,
   signOutAdmin,
 } from './services/adminApi'
+
+// Pick the page to open on sign-in from the saved preference, falling back to
+// the first page if the preference is missing or no longer a valid page.
+function resolveLandingPage(settings) {
+  const preferred = settings?.landingPagePreference
+  return adminPages.includes(preferred) ? preferred : adminPages[0]
+}
 
 function App() {
   const [session, setSession] = useState(null)
@@ -24,6 +32,7 @@ function App() {
   const [authError, setAuthError] = useState('')
   const [dashboard, setDashboard] = useState(null)
   const [activePage, setActivePage] = useState(adminPages[0])
+  const [refreshIntervalSeconds, setRefreshIntervalSeconds] = useState(5)
 
   useEffect(() => {
     let cancelled = false
@@ -34,9 +43,14 @@ function App() {
 
       if (restoredSession) {
         setSession(restoredSession)
-        const data = await fetchAdminData(restoredSession.accessToken)
+        const [data, settings] = await Promise.all([
+          fetchAdminData(restoredSession.accessToken),
+          fetchAdminSettings(restoredSession.accessToken),
+        ])
         if (!cancelled) {
           setDashboard(data)
+          setActivePage(resolveLandingPage(settings))
+          if (settings?.refreshIntervalSeconds) setRefreshIntervalSeconds(settings.refreshIntervalSeconds)
         }
       }
 
@@ -73,11 +87,15 @@ function App() {
 
     try {
       const nextSession = await signInAdmin({ email, password })
-      const data = await fetchAdminData(nextSession.accessToken)
+      const [data, settings] = await Promise.all([
+        fetchAdminData(nextSession.accessToken),
+        fetchAdminSettings(nextSession.accessToken),
+      ])
 
       setSession(nextSession)
       setDashboard(data)
-      setActivePage(adminPages[0])
+      setActivePage(resolveLandingPage(settings))
+      if (settings?.refreshIntervalSeconds) setRefreshIntervalSeconds(settings.refreshIntervalSeconds)
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'Unable to sign in.')
     } finally {
@@ -111,7 +129,7 @@ function App() {
     />,
     'Device Assignment': <AdminDevicesPage accessToken={session?.accessToken} />,
     Alerts: <AdminAlertsPage alerts={dashboard?.alerts ?? []} />,
-    Complaints: <AdminComplaintsPage complaints={dashboard?.complaints ?? []} accessToken={session?.accessToken} onComplaintsChanged={refreshDashboard} />,
+    Complaints: <AdminComplaintsPage complaints={dashboard?.complaints ?? []} accessToken={session?.accessToken} onComplaintsChanged={refreshDashboard} refreshIntervalSeconds={refreshIntervalSeconds} />,
     Settings: <AdminSettingsPage accessToken={session?.accessToken} />,
   }
 
@@ -148,9 +166,6 @@ function App() {
             <p className="muted">Oversight Console</p>
             <h2>{activePage}</h2>
           </div>
-          <button type="button" className="ghost-btn">
-            Export
-          </button>
         </header>
         {pageContent[activePage]}
       </main>

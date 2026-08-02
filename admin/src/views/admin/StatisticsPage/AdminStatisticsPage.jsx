@@ -1,6 +1,41 @@
 import './AdminStatisticsPage.css'
 
+// Turn an array of row objects into a downloadable CSV. Values are quoted and
+// inner quotes doubled so commas/quotes in patient names or anomalies can't
+// break the columns.
+function downloadCsv(filename, columns, rows) {
+  const escape = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`
+  const header = columns.map((column) => escape(column.label)).join(',')
+  const body = rows.map((row) => columns.map((column) => escape(row[column.key])).join(',')).join('\n')
+  const csv = `${header}\n${body}`
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
 function AdminStatisticsPage({ adminStats, fleetDevices, alerts }) {
+  const exportSnapshot = () => {
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+    downloadCsv(
+      `wi-health-fleet-${stamp}.csv`,
+      [
+        { key: 'id', label: 'Device' },
+        { key: 'patient', label: 'Patient' },
+        { key: 'status', label: 'Status' },
+        { key: 'health', label: 'Health' },
+        { key: 'updated', label: 'Last Update' },
+      ],
+      fleetDevices,
+    )
+  }
+
   const anomalyCountMap = alerts.reduce((accumulator, alert) => {
     const key = alert.anomaly
     accumulator[key] = (accumulator[key] ?? 0) + 1
@@ -16,7 +51,17 @@ function AdminStatisticsPage({ adminStats, fleetDevices, alerts }) {
   return (
     <section className="page-grid admin-statistics-page page-fade">
       <div className="card card-span-3">
-        <h2>Fleet Snapshot</h2>
+        <div className="stats-header-row">
+          <h2>Fleet Snapshot</h2>
+          <button
+            type="button"
+            className="ghost-btn"
+            onClick={exportSnapshot}
+            disabled={fleetDevices.length === 0}
+          >
+            Export CSV
+          </button>
+        </div>
         <div className="stats-grid">
           {adminStats.map((item) => (
             <article key={item.label} className="stat-tile">

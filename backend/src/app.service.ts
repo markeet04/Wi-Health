@@ -32,6 +32,9 @@ export type DeviceAssignRequest = {
   room?: string
   normalLow?: number
   normalHigh?: number
+  // When set, this assignment fulfils a device request — its status is marked
+  // 'fulfilled' (with the assigned device id) as part of the same operation.
+  requestId?: string
 }
 
 type AdminDeviceRecord = {
@@ -52,9 +55,22 @@ type AdminAppUser = {
   name: string
 }
 
+type AdminDeviceRequest = {
+  id: string
+  uid: string
+  userName: string
+  userEmail: string
+  patientName: string
+  patientRelation: string
+  room: string
+  status: string
+  createdAt: number
+}
+
 type AdminDevicesResponse = {
   devices: AdminDeviceRecord[]
   appUsers: AdminAppUser[]
+  requests: AdminDeviceRequest[]
 }
 
 type AdminRole = 'admin'
@@ -128,15 +144,11 @@ type DashboardResponse = {
   complaints: DashboardComplaint[]
 }
 
+// Only settings the apps actually consume. Landing Page picks the admin's
+// initial screen; Refresh Interval drives the live-data poll. Anything nothing
+// read (device alert thresholds live on the ESP32, invite/verification/reset
+// were never wired) was removed so saving a setting always has a real effect.
 export type AdminSettingsResponse = {
-  alertThresholds: {
-    tachypneaBpm: number
-    bradypneaBpm: number
-    apneaTriggerSeconds: number
-  }
-  defaultRoleForNewInvite: 'app_user' | 'admin'
-  requireEmailVerification: boolean
-  passwordResetWindowMinutes: number
   refreshIntervalSeconds: number
   landingPagePreference: string
 }
@@ -243,14 +255,6 @@ export const SEED_DATA = {
     ],
   } satisfies DashboardResponse,
   settings: {
-    alertThresholds: {
-      tachypneaBpm: 22,
-      bradypneaBpm: 10,
-      apneaTriggerSeconds: 20,
-    },
-    defaultRoleForNewInvite: 'app_user',
-    requireEmailVerification: true,
-    passwordResetWindowMinutes: 30,
     refreshIntervalSeconds: 5,
     landingPagePreference: 'Statistics / Analytics',
   } satisfies AdminSettingsResponse,
@@ -395,10 +399,6 @@ export class AppService implements OnModuleInit {
     const nextSettings = this.normalizeSettings(body)
 
     if (!this.firebaseEnabled()) {
-      this.demoSettings.alertThresholds = nextSettings.alertThresholds
-      this.demoSettings.defaultRoleForNewInvite = nextSettings.defaultRoleForNewInvite
-      this.demoSettings.requireEmailVerification = nextSettings.requireEmailVerification
-      this.demoSettings.passwordResetWindowMinutes = nextSettings.passwordResetWindowMinutes
       this.demoSettings.refreshIntervalSeconds = nextSettings.refreshIntervalSeconds
       this.demoSettings.landingPagePreference = nextSettings.landingPagePreference
       return this.buildDemoSettings()
@@ -872,7 +872,36 @@ export class AppService implements OnModuleInit {
       normalHigh,
     })
 
+    // If this assignment fulfils a request, close it out.
+    const requestId = body.requestId?.trim()
+    if (requestId) {
+      await db.ref(`deviceRequests/${requestId}`).update({
+        status: 'fulfilled',
+        fulfilledDeviceId: id,
+      }).catch(() => undefined)
+    }
+
     return { ok: true, deviceId: id, ownerUid: uid }
+  }
+
+  async declineDeviceRequest(accessToken: string, requestId: string) {
+    const session = await this.restoreSession(accessToken)
+    if (session.user.role !== 'admin') {
+      throw new ForbiddenException('Admin access required.')
+    }
+    const id = (requestId ?? '').trim()
+    if (!id) {
+      throw new BadRequestException('requestId is required.')
+    }
+    if (!this.firebaseEnabled()) {
+      return { ok: true, requestId: id, mode: 'demo' as const }
+    }
+    const firebaseApp = this.firebaseApp
+    if (!firebaseApp) {
+      throw new BadRequestException('Firebase is not configured.')
+    }
+    await getDatabase(firebaseApp).ref(`deviceRequests/${id}`).update({ status: 'declined' })
+    return { ok: true, requestId: id }
   }
 
   async unassignDevice(accessToken: string, deviceId: string) {
@@ -930,7 +959,7 @@ export class AppService implements OnModuleInit {
         .filter((user) => user.role === 'app_user')
         .map((user) => ({ uid: user.uid, email: user.email, name: user.name }))
 
-      return { devices, appUsers }
+      return { devices, appUsers, requests: [] }
     }
 
     const firebaseApp = this.firebaseApp
@@ -939,12 +968,38 @@ export class AppService implements OnModuleInit {
     }
 
     const db = getDatabase(firebaseApp)
-    const [devicesSnap, usersSnap] = await Promise.all([db.ref('devices').get(), db.ref('users').get()])
+    const [devicesSnap, usersSnap, requestsSnap] = await Promise.all([
+      db.ref('devices').get(),
+      db.ref('users').get(),
+      db.ref('deviceRequests').get(),
+    ])
 
     const users = this.normalizeUsers(usersSnap.val())
     const appUsers: AdminAppUser[] = users
       .filter((user) => user.role === 'App User')
       .map((user) => ({ uid: user.uid ?? '', email: user.email ?? '', name: user.name }))
+    const usersByUid = new Map(users.map((u) => [u.uid ?? '', u]))
+
+    const rawRequests = (requestsSnap.val() as Record<string, unknown>) ?? {}
+    const requests: AdminDeviceRequest[] = Object.entries(rawRequests)
+      .map(([id, value]) => {
+        const r = (value as Record<string, unknown>) ?? {}
+        const uid = String(r.uid ?? '')
+        const user = usersByUid.get(uid)
+        return {
+          id,
+          uid,
+          userName: user?.name ?? uid,
+          userEmail: user?.email ?? '',
+          patientName: String(r.patientName ?? ''),
+          patientRelation: String(r.patientRelation ?? ''),
+          room: String(r.room ?? ''),
+          status: String(r.status ?? 'pending'),
+          createdAt: Number(r.createdAt ?? 0),
+        }
+      })
+      .filter((r) => r.status === 'pending')
+      .sort((a, b) => b.createdAt - a.createdAt)
 
     const rawDevices = (devicesSnap.val() as Record<string, unknown>) ?? {}
     const devices: AdminDeviceRecord[] = Object.entries(rawDevices).map(([deviceId, value]) => {
@@ -965,7 +1020,7 @@ export class AppService implements OnModuleInit {
       }
     })
 
-    return { devices, appUsers }
+    return { devices, appUsers, requests }
   }
 
   private attachDemoDeviceToOwner(deviceId: string, uid: string) {
@@ -1040,16 +1095,28 @@ export class AppService implements OnModuleInit {
     const ownerUid = String(meta.ownerUid ?? '')
     if (!ownerUid) return
 
+    const type = String(alert.type ?? 'alert')
+    const severity = String(alert.severity ?? 'info')
+
+    // Respect the owner's notification preferences (set in the mobile Settings
+    // screen, stored at users/$uid/settings). Push off -> send nothing; urgent
+    // only -> drop non-urgent alerts. Missing settings default to allow.
+    const settingsSnapshot = await db.ref(`users/${ownerUid}/settings`).get()
+    const ownerSettings = (settingsSnapshot.val() as Record<string, unknown>) ?? {}
+    if (ownerSettings.pushEnabled === false) return
+    if (ownerSettings.urgentOnly === true && severity !== 'urgent') return
+
     const tokensSnapshot = await db.ref(`users/${ownerUid}/fcmTokens`).get()
     const tokens = Object.keys((tokensSnapshot.val() as Record<string, unknown>) ?? {})
     if (tokens.length === 0) return
 
-    const type = String(alert.type ?? 'alert')
-    const severity = String(alert.severity ?? 'info')
     const patientName = String(meta.patientName ?? deviceId)
     const summary = String(alert.summary ?? '')
     const title = `${patientName}: ${this.humanizeAlertType(type)}`
     const body = summary || `${severity === 'urgent' ? 'Urgent' : 'Anomaly'} detected on ${deviceId}.`
+
+    // Respect the owner's "Alert sound" toggle (Settings). Default on.
+    const soundOn = ownerSettings.soundEnabled !== false
 
     const response = await getMessaging(firebaseApp).sendEachForMulticast({
       tokens,
@@ -1063,6 +1130,9 @@ export class AppService implements OnModuleInit {
       },
       android: {
         priority: severity === 'urgent' ? 'high' : 'normal',
+        notification: {
+          sound: soundOn ? 'default' : undefined,
+        },
       },
     })
 
@@ -1322,18 +1392,8 @@ export class AppService implements OnModuleInit {
     }
 
     const settings = rawSettings as Record<string, unknown>
-    const thresholds = settings.alertThresholds as Record<string, unknown> | undefined
 
     return {
-      alertThresholds: {
-        tachypneaBpm: Number(thresholds?.tachypneaBpm ?? fallback.alertThresholds.tachypneaBpm),
-        bradypneaBpm: Number(thresholds?.bradypneaBpm ?? fallback.alertThresholds.bradypneaBpm),
-        apneaTriggerSeconds: Number(thresholds?.apneaTriggerSeconds ?? fallback.alertThresholds.apneaTriggerSeconds),
-      },
-      defaultRoleForNewInvite:
-        settings.defaultRoleForNewInvite === 'admin' ? 'admin' : 'app_user',
-      requireEmailVerification: settings.requireEmailVerification === false ? false : true,
-      passwordResetWindowMinutes: Number(settings.passwordResetWindowMinutes ?? fallback.passwordResetWindowMinutes),
       refreshIntervalSeconds: Number(settings.refreshIntervalSeconds ?? fallback.refreshIntervalSeconds),
       landingPagePreference: String(settings.landingPagePreference ?? fallback.landingPagePreference),
     }
