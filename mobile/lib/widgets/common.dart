@@ -219,7 +219,7 @@ class PrimaryButton extends StatelessWidget {
 }
 
 /// Labeled soft text field ("EMAIL", "PASSWORD" style).
-class SoftTextField extends StatelessWidget {
+class SoftTextField extends StatefulWidget {
   const SoftTextField({
     super.key,
     required this.label,
@@ -234,35 +234,68 @@ class SoftTextField extends StatelessWidget {
   final String label;
   final String hint;
   final TextEditingController? controller;
+
+  /// When true the field masks its text and shows a tappable eye icon to
+  /// reveal/hide it — used for password inputs.
   final bool obscure;
   final IconData? suffixIcon;
   final TextInputType? keyboardType;
   final int maxLines;
 
   @override
+  State<SoftTextField> createState() => _SoftTextFieldState();
+}
+
+class _SoftTextFieldState extends State<SoftTextField> {
+  late bool _hidden;
+
+  @override
+  void initState() {
+    super.initState();
+    _hidden = widget.obscure;
+  }
+
+  @override
   Widget build(BuildContext context) {
+    // Password fields get a show/hide toggle; other fields keep any static
+    // suffixIcon that was passed in.
+    Widget? suffix;
+    if (widget.obscure) {
+      suffix = IconButton(
+        splashRadius: 20,
+        icon: Icon(
+          _hidden
+              ? Icons.visibility_off_outlined
+              : Icons.visibility_outlined,
+          color: WiColors.inkFaint,
+          size: 20,
+        ),
+        onPressed: () => setState(() => _hidden = !_hidden),
+      );
+    } else if (widget.suffixIcon != null) {
+      suffix = Icon(widget.suffixIcon, color: WiColors.inkFaint, size: 19);
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
           padding: const EdgeInsets.only(left: 4, bottom: 7),
-          child: Text(label.toUpperCase(), style: WiText.label),
+          child: Text(widget.label.toUpperCase(), style: WiText.label),
         ),
         TextField(
-          controller: controller,
-          obscureText: obscure,
-          keyboardType: keyboardType,
-          maxLines: maxLines,
+          controller: widget.controller,
+          obscureText: _hidden,
+          keyboardType: widget.keyboardType,
+          maxLines: widget.maxLines,
           style: const TextStyle(
               fontSize: 14.5, color: WiColors.ink, fontWeight: FontWeight.w500),
           decoration: InputDecoration(
-            hintText: hint,
+            hintText: widget.hint,
             hintStyle: const TextStyle(color: WiColors.inkFaint, fontSize: 14),
             filled: true,
             fillColor: WiColors.field,
-            suffixIcon: suffixIcon != null
-                ? Icon(suffixIcon, color: WiColors.inkFaint, size: 19)
-                : null,
+            suffixIcon: suffix,
             contentPadding:
                 const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
             border: OutlineInputBorder(
