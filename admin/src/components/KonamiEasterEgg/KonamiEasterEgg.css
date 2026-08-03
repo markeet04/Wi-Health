@@ -1,0 +1,89 @@
+/* Full-page takeover for the Konami easter egg. Sits above everything the app
+   draws, including the chromatic theme's LED strip at z-index 9999. */
+.konami {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: grid;
+  place-items: center;
+  background: #000000;
+  cursor: pointer;
+  animation: konami-in 260ms ease-out;
+}
+
+@keyframes konami-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+/* `contain` rather than `cover`: the overlay is already the full page, and
+   cropping a music video to fill the last few pixels isn't worth losing the
+   edges of the frame. Swap to `cover` if edge-to-edge matters more. */
+.konami__video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.konami__corner {
+  position: absolute;
+  top: 18px;
+  right: 20px;
+}
+
+.konami__footer {
+  position: absolute;
+  bottom: 22px;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.konami__close {
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #ffffff;
+  font-size: 1rem;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+
+.konami__sound {
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #ffffff;
+  padding: 9px 18px;
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+
+.konami__close:hover,
+.konami__sound:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.konami__hint {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .konami {
+    animation: none;
+  }
+}
