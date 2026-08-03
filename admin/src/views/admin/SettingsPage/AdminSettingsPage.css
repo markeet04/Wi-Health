@@ -48,6 +48,7 @@
 
 .theme-toggle {
   display: inline-flex;
+  flex-wrap: wrap;
   gap: 6px;
   padding: 4px;
   border: 1px solid var(--border);
@@ -57,6 +58,9 @@
 }
 
 .theme-toggle__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   border: none;
   background: transparent;
   color: var(--text);

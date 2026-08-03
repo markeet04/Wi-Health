@@ -7,6 +7,7 @@ const THEME_OPTIONS = [
   { value: 'light', label: 'Light' },
   { value: 'dark', label: 'Dark' },
   { value: 'system', label: 'System' },
+  { value: 'chromatic', label: 'Chromatic' },
 ]
 
 // Only settings the app actually consumes live here. Landing Page sets which
@@ -128,6 +129,7 @@ function AdminSettingsPage({ accessToken }) {
                   className={theme === option.value ? 'theme-toggle__btn is-active' : 'theme-toggle__btn'}
                   onClick={() => setTheme(option.value)}
                 >
+                  {option.value === 'chromatic' ? <span className="theme-toggle__swatch" aria-hidden="true" /> : null}
                   {option.label}
                 </button>
               ))}

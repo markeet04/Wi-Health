@@ -1,0 +1,450 @@
+/* ============================================================================
+   Chromatic — a theme that cycles the whole UI through the rainbow forever, in
+   the spirit of gaming-peripheral RGB lighting. Picked from
+   Settings > Appearance > Theme.
+
+   How it works
+   ------------
+   One registered custom property, --chroma-hue, is animated 0deg -> 360deg on
+   <html> on an infinite loop. Registering it with @property is what makes the
+   cycle smooth: an unregistered custom property would step between keyframes
+   instead of interpolating. Because it also inherits, every rule below is just
+   a function of that single value, so the entire interface shifts hue in phase
+   rather than each accent drifting on its own timer.
+
+   Activation
+   ----------
+   PreferencesContext sets <html data-theme="dark" data-chroma="on">. Keeping the
+   dark base attribute means every existing :root[data-theme='dark'] rule in the
+   app still applies and chromatic only layers accents on top. Rules here are
+   therefore prefixed :root[data-theme][data-chroma='on'] — one attribute more
+   specific than those dark rules, so they win regardless of stylesheet order.
+   ============================================================================ */
+
+@property --chroma-hue {
+  syntax: '<angle>';
+  inherits: true;
+  initial-value: 0deg;
+}
+
+@keyframes chroma-cycle {
+  from {
+    --chroma-hue: 0deg;
+  }
+
+  to {
+    --chroma-hue: 360deg;
+  }
+}
+
+:root[data-theme][data-chroma='on'] {
+  /* One full trip around the colour wheel. */
+  --chroma-period: 10s;
+  animation: chroma-cycle var(--chroma-period) linear infinite;
+
+  /* Accents derived from the animated hue. -lead/-trail sit either side of it
+     so gradients read as a slice of the spectrum sweeping past, not a flat fill. */
+  --chroma: hsl(var(--chroma-hue) 92% 62%);
+  --chroma-lead: hsl(calc(var(--chroma-hue) + 45deg) 92% 62%);
+  --chroma-trail: hsl(calc(var(--chroma-hue) - 45deg) 92% 62%);
+  --chroma-opposite: hsl(calc(var(--chroma-hue) + 180deg) 92% 62%);
+  --chroma-veil: hsl(var(--chroma-hue) 85% 60% / 0.12);
+  --chroma-tint: hsl(var(--chroma-hue) 85% 60% / 0.2);
+  --chroma-edge: hsl(var(--chroma-hue) 70% 58% / 0.42);
+  --chroma-glow: hsl(var(--chroma-hue) 95% 58% / 0.35);
+  --chroma-sweep: linear-gradient(120deg, var(--chroma-trail), var(--chroma), var(--chroma-lead));
+
+  /* The base palette rides the hue too, so the page itself changes colour rather
+     than staying black behind cycling accents. Lightness is pinned low on the
+     surfaces and high on the type — the hue swings freely, the contrast doesn't. */
+  --text: hsl(var(--chroma-hue) 45% 89%);
+  --heading: hsl(var(--chroma-hue) 100% 97%);
+  --muted: hsl(var(--chroma-hue) 28% 70%);
+  --border: var(--chroma-edge);
+  --bg: hsl(var(--chroma-hue) 58% 8%);
+  --surface: hsl(var(--chroma-hue) 48% 13%);
+  --surface-2: hsl(calc(var(--chroma-hue) + 22deg) 46% 18%);
+  --surface-body:
+    radial-gradient(125% 95% at 100% 0%, hsl(calc(var(--chroma-hue) + 45deg) 70% 22% / 0.9) 0%, transparent 60%),
+    radial-gradient(115% 90% at 0% 100%, hsl(calc(var(--chroma-hue) - 45deg) 70% 20% / 0.85) 0%, transparent 60%),
+    linear-gradient(160deg, hsl(var(--chroma-hue) 60% 11%) 0%, hsl(calc(var(--chroma-hue) + 30deg) 62% 8%) 100%);
+  color-scheme: dark;
+}
+
+/* The LED strip: a full spectrum pinned to the top of the viewport whose hues
+   scroll with the cycle. This is the one element that shows the entire rainbow
+   at once rather than a single point on it. */
+:root[data-theme][data-chroma='on'] body::before {
+  content: '';
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 3px;
+  z-index: 9999;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    hsl(var(--chroma-hue) 95% 60%),
+    hsl(calc(var(--chroma-hue) + 72deg) 95% 60%),
+    hsl(calc(var(--chroma-hue) + 144deg) 95% 60%),
+    hsl(calc(var(--chroma-hue) + 216deg) 95% 60%),
+    hsl(calc(var(--chroma-hue) + 288deg) 95% 60%),
+    hsl(calc(var(--chroma-hue) + 360deg) 95% 60%)
+  );
+}
+
+/* Replace the dark theme's flattened content wash with a colour bloom. Sits at
+   z-index -1 behind the cards, so it tints the gaps between panels and keeps the
+   empty regions of the page moving with everything else. */
+:root[data-theme][data-chroma='on'] .content::before {
+  background:
+    radial-gradient(circle at top right, hsl(calc(var(--chroma-hue) + 45deg) 85% 55% / 0.22), transparent 45%),
+    radial-gradient(circle at bottom left, hsl(calc(var(--chroma-hue) + 180deg) 85% 55% / 0.18), transparent 45%),
+    radial-gradient(circle at 50% 120%, hsl(calc(var(--chroma-hue) - 60deg) 85% 55% / 0.16), transparent 50%);
+}
+
+/* ---- panels ------------------------------------------------------------- */
+/* Borders already cycle via --border; these add the outward glow. */
+:root[data-theme][data-chroma='on'] .card,
+:root[data-theme][data-chroma='on'] .boot-card {
+  box-shadow:
+    inset 0 0 0 1px hsl(var(--chroma-hue) 80% 62% / 0.08),
+    0 18px 44px hsl(var(--chroma-hue) 90% 40% / 0.12);
+}
+
+/* Light literals the dark overrides never reached — harmless there, glaring on
+   the near-black chromatic base. */
+:root[data-theme][data-chroma='on'] .timeline-item,
+:root[data-theme][data-chroma='on'] .bpm-display,
+:root[data-theme][data-chroma='on'] .monitor-visual,
+:root[data-theme][data-chroma='on'] .c-icon-btn {
+  background: var(--surface);
+}
+
+/* Row rules and trend-bar tracks that were fixed light greys. */
+:root[data-theme][data-chroma='on'] th,
+:root[data-theme][data-chroma='on'] td,
+:root[data-theme][data-chroma='on'] .metric-row {
+  border-bottom-color: hsl(var(--chroma-hue) 60% 55% / 0.2);
+}
+
+:root[data-theme][data-chroma='on'] .bar {
+  background: hsl(var(--chroma-hue) 40% 50% / 0.15);
+}
+
+/* ---- accents ------------------------------------------------------------ */
+/* Anything that reads as "the primary colour" becomes the sweep. */
+:root[data-theme][data-chroma='on'] .bar i,
+:root[data-theme][data-chroma='on'] .complaint-item__avatar,
+:root[data-theme][data-chroma='on'] .c-modal__avatar,
+:root[data-theme][data-chroma='on'] .c-btn--primary,
+:root[data-theme][data-chroma='on'] .c-dock__bar,
+:root[data-theme][data-chroma='on'] .is-admin .c-bubble,
+:root[data-theme][data-chroma='on'] .c-dock__send,
+:root[data-theme][data-chroma='on'] .stacked-form button[type='submit'] {
+  background: var(--chroma-sweep);
+  color: #0a0910;
+  border-color: transparent;
+  font-weight: 700;
+}
+
+:root[data-theme][data-chroma='on'] .monitor-core {
+  background: radial-gradient(circle, #ffffff 0%, var(--chroma) 55%, var(--chroma-trail) 100%);
+  box-shadow: 0 0 0 14px var(--chroma-veil), 0 0 28px var(--chroma-glow);
+}
+
+:root[data-theme][data-chroma='on'] .monitor-ring {
+  border-color: var(--chroma-edge);
+  box-shadow: inset 0 0 0 14px var(--chroma-veil);
+}
+
+:root[data-theme][data-chroma='on'] .monitor-ring::after {
+  border-color: var(--chroma-edge);
+}
+
+:root[data-theme][data-chroma='on'] .boot-spinner {
+  border-color: var(--chroma-veil);
+  border-top-color: var(--chroma);
+}
+
+/* Selected states pick up a lit edge so "where am I" survives the hue shift. */
+:root[data-theme][data-chroma='on'] .sidebar nav button.active,
+:root[data-theme][data-chroma='on'] .app-sidebar .sidebar-nav button.active,
+:root[data-theme][data-chroma='on'] .filters button.active,
+:root[data-theme][data-chroma='on'] .patient-chip.active,
+:root[data-theme][data-chroma='on'] .stat-tile--stacked {
+  background: linear-gradient(90deg, var(--chroma-tint), transparent), var(--surface-2);
+  border-color: var(--chroma);
+  box-shadow: inset 3px 0 0 var(--chroma), 0 0 18px hsl(var(--chroma-hue) 90% 50% / 0.18);
+}
+
+:root[data-theme][data-chroma='on'] .app-sidebar .sidebar-role-badge {
+  background: var(--chroma-tint);
+  color: var(--heading);
+  box-shadow: inset 0 0 0 1px var(--chroma-edge);
+}
+
+:root[data-theme][data-chroma='on'] .sidebar h1 {
+  background: var(--chroma-sweep);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Lift on hover reads as the light catching the surface. */
+:root[data-theme][data-chroma='on'] .ghost-btn:hover,
+:root[data-theme][data-chroma='on'] .stacked-form button:hover,
+:root[data-theme][data-chroma='on'] .inline-actions button:hover,
+:root[data-theme][data-chroma='on'] .filters button:hover,
+:root[data-theme][data-chroma='on'] .sidebar nav button:hover,
+:root[data-theme][data-chroma='on'] .app-sidebar .sidebar-nav button:hover {
+  border-color: var(--chroma);
+  box-shadow: 0 10px 24px hsl(var(--chroma-hue) 90% 45% / 0.28);
+}
+
+:root[data-theme][data-chroma='on'] .stacked-form input:focus,
+:root[data-theme][data-chroma='on'] .stacked-form select:focus,
+:root[data-theme][data-chroma='on'] .stacked-form textarea:focus,
+:root[data-theme][data-chroma='on'] .c-dock__composer textarea:focus {
+  border-color: var(--chroma);
+  box-shadow: 0 0 0 3px var(--chroma-veil);
+}
+
+:root[data-theme][data-chroma='on'] ::selection {
+  background: var(--chroma-tint);
+  color: #ffffff;
+}
+
+:root[data-theme][data-chroma='on'] *::-webkit-scrollbar-thumb {
+  background: var(--chroma-edge);
+  border-radius: 999px;
+}
+
+:root[data-theme][data-chroma='on'] *::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+:root[data-theme][data-chroma='on'] *::-webkit-scrollbar-track {
+  background: var(--surface);
+}
+
+/* ---- sparkle ------------------------------------------------------------ */
+/* Every button carries two layers that share one light source sweeping across it
+   left to right, so the whole thing reads as a facet catching a moving highlight
+   rather than as two unrelated animations:
+
+     ::before  six diamond glints, lit by the sweep as it passes over each one
+     ::after   the specular band itself, screen-blended so it reads as light
+
+   Both run on the same 3.2s period and are deliberately in phase — a star flares
+   at the moment the band reaches it. The star is a mask rather than a background
+   image, so the shape stays crisp at any size while the fill underneath keeps
+   cycling with the hue. */
+:root[data-theme][data-chroma='on'] {
+  --chroma-star: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpath d='M50 0 Q54 46 100 50 Q54 54 50 100 Q46 54 0 50 Q46 46 50 0 Z' fill='%23fff'/%3E%3C/svg%3E");
+}
+
+@keyframes chroma-sweep {
+  from {
+    background-position: 165% 0;
+  }
+
+  to {
+    background-position: -65% 0;
+  }
+}
+
+/* Used only by the glints. The floor is high so the jitter reads as a hot light
+   flickering, not as the diamonds fading out and back. */
+@keyframes chroma-shimmer {
+  0%, 100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.78;
+  }
+}
+
+:root[data-theme][data-chroma='on'] button {
+  position: relative;
+}
+
+/* Disabled controls stay inert — a dead button shouldn't look lively. */
+:root[data-theme][data-chroma='on'] button:not(:disabled)::before,
+:root[data-theme][data-chroma='on'] button:not(:disabled)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background-repeat: no-repeat;
+  animation: chroma-sweep 3s linear infinite;
+}
+
+/* Neighbouring buttons are pulled off each other's phase with negative delays,
+   which start them mid-sweep. Without this a stack of nav buttons flashes in
+   perfect unison and reads as one blinking block rather than as sparkle.
+   These are thirds of the sweep period — retune them alongside it or the
+   buttons bunch back up. */
+:root[data-theme][data-chroma='on'] button:nth-of-type(3n + 2)::before,
+:root[data-theme][data-chroma='on'] button:nth-of-type(3n + 2)::after {
+  animation-delay: -1s;
+}
+
+:root[data-theme][data-chroma='on'] button:nth-of-type(3n + 3)::before,
+:root[data-theme][data-chroma='on'] button:nth-of-type(3n + 3)::after {
+  animation-delay: -2s;
+}
+
+:root[data-theme][data-chroma='on'] button:not(:disabled)::before {
+  /* Nothing behind the band. A resting fill here lights all six glints at once
+     and the button just wears a static constellation — the travelling band has
+     to be the only light, so a star is dark until the sweep reaches it.
+     Flanks sit 55deg either side of the current hue, so the streak is a small
+     prism rather than a white smear — that spread is what makes the cycle
+     legible at speed. The core is white-hot but deliberately narrow: past ~85%
+     lightness hue washes out, so brightness comes from a thin blown-out centre
+     with saturated flanks carrying the colour, never from lifting the whole
+     band. */
+  background-image: linear-gradient(
+    100deg,
+    transparent 43%,
+    hsl(calc(var(--chroma-hue) - 55deg) 100% 72%) 46%,
+    hsl(var(--chroma-hue) 100% 99%) 50%,
+    hsl(calc(var(--chroma-hue) + 55deg) 100% 72%) 54%,
+    transparent 57%
+  );
+  /* 14% of a 300%-wide image = a band ~42% of the button, so two or three of the
+     six glints are lit at any instant and the flare rolls across. */
+  background-size: 300% 100%;
+  /* Three stacked blooms — tight, mid, wide — so each glint reads as blown out
+     rather than merely coloured. drop-shadow follows the masked star outline,
+     which box-shadow could not do, and stacking is what compounds the
+     brightness: each pass re-blurs the already-glowing result. */
+  filter:
+    drop-shadow(0 0 2px hsl(var(--chroma-hue) 100% 88% / 1))
+    drop-shadow(0 0 6px hsl(var(--chroma-hue) 100% 70% / 1))
+    drop-shadow(0 0 14px hsl(var(--chroma-hue) 100% 58% / 0.95));
+  -webkit-mask-image: var(--chroma-star), var(--chroma-star), var(--chroma-star), var(--chroma-star), var(--chroma-star), var(--chroma-star);
+  mask-image: var(--chroma-star), var(--chroma-star), var(--chroma-star), var(--chroma-star), var(--chroma-star), var(--chroma-star);
+  -webkit-mask-position: 12% 24%, 67% 16%, 88% 72%, 30% 80%, 51% 46%, 78% 32%;
+  mask-position: 12% 24%, 67% 16%, 88% 72%, 30% 80%, 51% 46%, 78% 32%;
+  -webkit-mask-size: 12px 12px, 7px 7px, 10px 10px, 9px 9px, 6px 6px, 8px 8px;
+  mask-size: 12px 12px, 7px 7px, 10px 10px, 9px 9px, 6px 6px, 8px 8px;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  /* Longhands, not the shorthand: the shorthand would reset animation-delay and
+     wipe the per-button phase offsets set above. The fast shimmer rides on top
+     of the sweep so lit glints jitter instead of gliding smoothly. */
+  animation-name: chroma-sweep, chroma-shimmer;
+  animation-duration: 3s, 0.34s;
+  animation-timing-function: linear, ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+:root[data-theme][data-chroma='on'] button:not(:disabled)::after {
+  background-image: linear-gradient(
+    100deg,
+    transparent 45%,
+    hsl(calc(var(--chroma-hue) - 50deg) 100% 58% / 0.55) 47.5%,
+    hsl(var(--chroma-hue) 100% 74% / 0.95) 50%,
+    hsl(calc(var(--chroma-hue) + 50deg) 100% 58% / 0.55) 52.5%,
+    transparent 55%
+  );
+  background-size: 300% 100%;
+  /* Screen keeps the band additive, so it brightens the button instead of
+     painting a grey stripe over it. */
+  mix-blend-mode: screen;
+}
+
+/* Hover winds the whole light source up rather than adding a separate effect. */
+:root[data-theme][data-chroma='on'] button:not(:disabled):hover::after {
+  animation-duration: 1.2s;
+}
+
+:root[data-theme][data-chroma='on'] button:not(:disabled):hover::before {
+  animation-duration: 1.2s, 0.16s;
+  filter:
+    drop-shadow(0 0 3px hsl(var(--chroma-hue) 100% 92% / 1))
+    drop-shadow(0 0 8px hsl(var(--chroma-hue) 100% 76% / 1))
+    drop-shadow(0 0 18px hsl(var(--chroma-hue) 100% 62% / 1));
+}
+
+/* ---- sign-in ------------------------------------------------------------ */
+/* The login split-screen builds its art from these four locals, so retinting
+   them cycles the whole panel — gradient, grid mask, trace and all. */
+:root[data-theme][data-chroma='on'] .auth-shell {
+  --ink: hsl(var(--chroma-hue) 60% 8%);
+  --scope-deep: hsl(var(--chroma-hue) 75% 22%);
+  --scope-mid: hsl(calc(var(--chroma-hue) + 30deg) 70% 45%);
+  --scope-tint: hsl(calc(var(--chroma-hue) + 60deg) 80% 66%);
+}
+
+:root[data-theme][data-chroma='on'] .auth-access {
+  background: var(--surface);
+}
+
+:root[data-theme][data-chroma='on'] .auth-access__head h2,
+:root[data-theme][data-chroma='on'] .auth-line__control input {
+  color: var(--heading);
+}
+
+:root[data-theme][data-chroma='on'] .auth-access__kicker {
+  color: var(--chroma);
+}
+
+:root[data-theme][data-chroma='on'] .auth-line__control {
+  border-bottom-color: var(--chroma-edge);
+}
+
+:root[data-theme][data-chroma='on'] .auth-line__control:focus-within {
+  border-bottom-color: var(--chroma);
+}
+
+:root[data-theme][data-chroma='on'] .auth-line__control:focus-within svg,
+:root[data-theme][data-chroma='on'] .auth-line__toggle:hover {
+  color: var(--chroma);
+}
+
+:root[data-theme][data-chroma='on'] .auth-go,
+:root[data-theme][data-chroma='on'] .auth-go:hover:not(:disabled) {
+  background: var(--chroma-sweep);
+  color: #0a0910;
+}
+
+/* ---- settings control --------------------------------------------------- */
+/* Unprefixed on purpose: the preview dot on the Chromatic button cycles in every
+   theme, so the option demonstrates itself before you pick it. */
+.theme-toggle__swatch {
+  width: 11px;
+  height: 11px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  animation: chroma-cycle 10s linear infinite;
+  background: hsl(var(--chroma-hue) 92% 60%);
+  box-shadow: 0 0 9px hsl(var(--chroma-hue) 92% 60% / 0.85);
+}
+
+:root[data-theme][data-chroma='on'] .theme-toggle__btn.is-active {
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--chroma), 0 0 14px hsl(var(--chroma-hue) 90% 50% / 0.3);
+}
+
+/* ---- reduced motion ----------------------------------------------------- */
+/* Hold the cycle at one hue rather than dropping the theme: the palette still
+   applies, it just stops moving. */
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme][data-chroma='on'],
+  .theme-toggle__swatch {
+    animation: none;
+    --chroma-hue: 275deg;
+  }
+
+  /* The sweep and its glints are pure flicker, so they go entirely rather than
+     freezing mid-pass. */
+  :root[data-theme][data-chroma='on'] button::before,
+  :root[data-theme][data-chroma='on'] button::after {
+    display: none;
+  }
+}
