@@ -2,8 +2,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../theme.dart';
 
-/// The Wi-Health brand mark: a gradient squircle carrying a soft breathing
-/// wave with a pulse dot — air and rhythm in one shape.
+/// The Wi-Health brand mark: the heart-pulse logo image, clipped to a
+/// squircle with the brand drop shadow.
 class WiLogoMark extends StatelessWidget {
   const WiLogoMark({super.key, this.size = 72});
 
@@ -15,7 +15,6 @@ class WiLogoMark extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        gradient: wiBrandGradient,
         borderRadius: BorderRadius.circular(size * 0.3),
         boxShadow: [
           BoxShadow(
@@ -25,59 +24,12 @@ class WiLogoMark extends StatelessWidget {
           ),
         ],
       ),
-      child: CustomPaint(painter: _LogoWavePainter()),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(size * 0.3),
+        child: Image.asset('assets/images/logo.png', fit: BoxFit.cover),
+      ),
     );
   }
-}
-
-class _LogoWavePainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final midY = size.height * 0.52;
-    final start = size.width * 0.17;
-    final end = size.width * 0.71;
-    final amp = size.height * 0.14;
-
-    final path = Path()..moveTo(start, midY);
-    for (double x = start; x <= end; x += 1) {
-      final t = (x - start) / (end - start) * 2 * math.pi;
-      path.lineTo(x, midY - math.sin(t) * amp);
-    }
-
-    // Echo wave behind, translucent.
-    final echo = Path()..moveTo(start, midY);
-    for (double x = start; x <= end + size.width * 0.06; x += 1) {
-      final t = (x - start) / (end - start) * 2 * math.pi;
-      echo.lineTo(x, midY - math.sin(t - 0.9) * amp * 0.62);
-    }
-    canvas.drawPath(
-      echo,
-      Paint()
-        ..color = Colors.white.withValues(alpha: 0.35)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = size.width * 0.055
-        ..strokeCap = StrokeCap.round,
-    );
-
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = Colors.white
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = size.width * 0.085
-        ..strokeCap = StrokeCap.round,
-    );
-
-    // Pulse dot at the wave's end.
-    canvas.drawCircle(
-      Offset(size.width * 0.80, midY - math.sin(2 * math.pi) * amp),
-      size.width * 0.062,
-      Paint()..color = Colors.white,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_LogoWavePainter oldDelegate) => false;
 }
 
 /// Calm expanding "breath" rings — used behind the logo on splash, login,
