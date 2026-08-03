@@ -473,6 +473,23 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Dismisses every alert currently in the feed, one at a time through the
+  /// same [dismissAlertHandler] used for single dismissals so each alert is
+  /// still marked dismissed/dismissedBy on the backend.
+  Future<void> dismissAllAlerts({required String uid}) async {
+    final ids = alerts.map((a) => a.id).toList();
+    if (ids.isEmpty) return;
+
+    alerts.clear();
+    notifyListeners();
+
+    if (dismissAlertHandler != null) {
+      for (final id in ids) {
+        await dismissAlertHandler!(id, uid: uid);
+      }
+    }
+  }
+
   /// Claims an admin-provisioned device and links it to this account. The real
   /// work is a Firebase transaction in the repository (see [claimDeviceHandler]),
   /// which only succeeds if the device exists and is currently unassigned. Once

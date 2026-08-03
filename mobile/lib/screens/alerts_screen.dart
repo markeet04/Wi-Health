@@ -44,6 +44,16 @@ class _AlertsScreenState extends State<AlertsScreen> {
                   children: [
                     const Text('Alert Feed', style: WiText.h1),
                     const Spacer(),
+                    if (widget.app.alerts.isNotEmpty)
+                      GestureDetector(
+                        onTap: () => _confirmDeleteAll(context),
+                        child: const Padding(
+                          padding: EdgeInsets.only(left: 10),
+                          child: Icon(Icons.delete_sweep_outlined,
+                              color: WiColors.inkSoft, size: 21),
+                        ),
+                      ),
+                    const SizedBox(width: 10),
                     Text(
                       '${alerts.where((a) => !a.acknowledged).length} open',
                       style: WiText.body,
@@ -88,6 +98,39 @@ class _AlertsScreenState extends State<AlertsScreen> {
         );
       },
     );
+  }
+
+  Future<void> _confirmDeleteAll(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: WiColors.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Text('Delete all alerts?', style: WiText.title),
+        content: const Text(
+          'This removes every alert from the feed. This cannot be undone.',
+          style: WiText.body,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel',
+                style: TextStyle(
+                    color: WiColors.inkSoft, fontWeight: FontWeight.w700)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Delete all',
+                style: TextStyle(
+                    color: WiColors.red, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await widget.app.dismissAllAlerts(uid: widget.app.userId);
+    }
   }
 
   Widget _filters() {
@@ -203,7 +246,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
                     icon: Icons.done_all_rounded,
                   ),
                 ),
-              const Spacer(),
+              const SizedBox(width: 8),
               GestureDetector(
                 onTap: () => widget.app.dismissAlert(a.id, uid: widget.app.userId),
                 child: const StatusPill(
@@ -213,6 +256,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
                   icon: Icons.close_rounded,
                 ),
               ),
+              const Spacer(),
               const Text('Details',
                   style: TextStyle(
                       color: WiColors.primary,
