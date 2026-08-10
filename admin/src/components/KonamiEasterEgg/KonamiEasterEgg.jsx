@@ -75,10 +75,6 @@ function KonamiEasterEgg() {
         onEnded={close}
       />
 
-      {/* The controls live in positioned wrappers rather than being positioned
-          themselves: the chromatic theme sets `position: relative` on every
-          button at a specificity these classes can't outrank, which would drag
-          them out of the corners. */}
       <div className="konami__corner">
         <button type="button" className="konami__close" onClick={close} aria-label="Close video">
           ✕

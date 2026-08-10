@@ -1,5 +1,5 @@
 /* Full-page takeover for the Konami easter egg. Sits above everything the app
-   draws, including the chromatic theme's LED strip at z-index 9999. */
+   draws. */
 .konami {
   position: fixed;
   inset: 0;

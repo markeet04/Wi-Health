@@ -483,3 +483,52 @@
     display: none;
   }
 }
+
+/* --- Dark theme: the sign-in form panel was hardcoded white/light regardless
+   of the app theme (only the removed chromatic easter egg happened to theme
+   it, as a side effect of riding the dark base). Flatten it to the shared
+   dark surface here so plain Dark/System mode themes it too. --- */
+:root[data-theme='dark'] .auth-access {
+  background: var(--surface);
+}
+
+:root[data-theme='dark'] .auth-access__kicker {
+  color: var(--scope-tint);
+}
+
+:root[data-theme='dark'] .auth-access__head h2,
+:root[data-theme='dark'] .auth-line__control input {
+  color: var(--heading);
+}
+
+:root[data-theme='dark'] .auth-access__lede,
+:root[data-theme='dark'] .auth-line__label,
+:root[data-theme='dark'] .auth-hint {
+  color: var(--muted);
+}
+
+:root[data-theme='dark'] .auth-line__control {
+  border-bottom-color: var(--border);
+}
+
+:root[data-theme='dark'] .auth-line__control svg {
+  color: var(--muted);
+}
+
+:root[data-theme='dark'] .auth-line__control:focus-within {
+  border-bottom-color: #7fae95;
+}
+
+:root[data-theme='dark'] .auth-line__control:focus-within svg,
+:root[data-theme='dark'] .auth-line__toggle:hover {
+  color: #7fae95;
+}
+
+:root[data-theme='dark'] .auth-hint {
+  border-top-color: var(--border);
+}
+
+:root[data-theme='dark'] .auth-go,
+:root[data-theme='dark'] .auth-go:hover:not(:disabled) {
+  background: linear-gradient(135deg, #214434, #3d6956);
+}

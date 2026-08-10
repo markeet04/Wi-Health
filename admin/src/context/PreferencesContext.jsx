@@ -2,12 +2,11 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 
 // App-wide UI preferences (theme + font scale), persisted to localStorage and
 // applied to the <html> element so every screen picks them up via CSS:
-//   theme      -> data-theme="light|dark" (resolved from light/dark/system/chromatic)
-//                 plus data-chroma="on" for chromatic (see styles/chromatic.css)
+//   theme      -> data-theme="light|dark" (resolved from light/dark/system)
 //   fontScale  -> --font-scale multiplier consumed by index.css
 const THEME_KEY = 'wi-netra-admin-theme'
 
-const THEMES = ['light', 'dark', 'system', 'chromatic']
+const THEMES = ['light', 'dark', 'system']
 const FONT_KEY = 'wi-netra-admin-font-scale'
 
 const FONT_MIN = 0.85
@@ -29,11 +28,8 @@ function readFontScale() {
   return Number.isFinite(stored) && stored > 0 ? clampFont(stored) : FONT_DEFAULT
 }
 
-// Resolve to the base palette the CSS variables build on. 'system' follows the
-// OS; 'chromatic' rides on the dark base so every existing dark rule keeps
-// applying and chromatic.css only has to layer the cycling accents on top.
+// Resolve to the base palette the CSS variables build on. 'system' follows the OS.
 function resolveTheme(theme) {
-  if (theme === 'chromatic') return 'dark'
   if (theme === 'system') {
     return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
   }
@@ -48,13 +44,7 @@ export function PreferencesProvider({ children }) {
   // changes while 'system' is selected.
   useEffect(() => {
     const apply = () => {
-      const root = document.documentElement
-      root.setAttribute('data-theme', resolveTheme(theme))
-      if (theme === 'chromatic') {
-        root.setAttribute('data-chroma', 'on')
-      } else {
-        root.removeAttribute('data-chroma')
-      }
+      document.documentElement.setAttribute('data-theme', resolveTheme(theme))
     }
     apply()
 
