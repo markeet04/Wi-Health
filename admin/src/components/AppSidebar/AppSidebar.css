@@ -11,6 +11,20 @@
   overflow: hidden;
 }
 
+/* Wrappers are transparent to layout on desktop (display: contents) so their
+   children keep participating directly in .sidebar's flex column exactly as
+   before — the mobile media query below is what turns them into the actual
+   hamburger row + collapsible drawer. */
+.sidebar-top-row,
+.sidebar-collapsible {
+  display: contents;
+}
+
+.sidebar-menu-toggle,
+.sidebar-backdrop {
+  display: none;
+}
+
 .sidebar h1 {
   font-size: 1.55rem;
   margin: 0;
@@ -129,20 +143,113 @@
   .sidebar {
     border-right: none;
     border-bottom: 1px solid var(--border);
-    padding: 18px 16px;
-    position: static;
-    top: auto;
+    padding: 14px 16px;
+    /* Sticky (not static/relative): at this width .content scrolls the whole
+       page rather than internally, so a merely-relative sidebar would scroll
+       the header (and the hamburger button on it) out of view. Sticky keeps
+       it pinned, which also keeps the absolutely-positioned drawer below
+       correctly anchored under it regardless of scroll position. */
+    position: sticky;
+    top: 0;
+    z-index: 45;
+    /* .admin-shell is a grid; grid items default to align-items: stretch, which
+       stretches the sidebar to match .content's row height and made sticky
+       positioning measure a bogus, much-too-tall box (a large empty gap
+       appeared under the header once .content had more height to stretch to).
+       A sticky item must size to its own content, not the row. */
+    align-self: start;
     height: auto;
     overflow: visible;
   }
 
-  .sidebar nav {
-    overflow-x: auto;
-    flex-direction: row;
+  .sidebar-top-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
   }
 
-  .sidebar nav button {
-    white-space: nowrap;
+  .sidebar-menu-toggle {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    width: 40px;
+    height: 40px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    cursor: pointer;
+  }
+
+  .sidebar-menu-toggle__bar {
+    display: block;
+    width: 18px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--heading);
+    transition: transform 160ms ease, opacity 160ms ease;
+  }
+
+  .sidebar.is-open .sidebar-menu-toggle__bar:nth-child(1) {
+    transform: translateY(6px) rotate(45deg);
+  }
+
+  .sidebar.is-open .sidebar-menu-toggle__bar:nth-child(2) {
+    opacity: 0;
+  }
+
+  .sidebar.is-open .sidebar-menu-toggle__bar:nth-child(3) {
+    transform: translateY(-6px) rotate(-45deg);
+  }
+
+  /* Collapsed by default on mobile; opens as a dropdown drawer anchored
+     under the top row instead of the old horizontal-scrolling nav row. */
+  .sidebar-collapsible {
+    display: none;
+    flex-direction: column;
+    gap: 14px;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    z-index: 40;
+    margin-top: 14px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: 0 0 16px 16px;
+    background: var(--surface-2);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.18);
+    /* Capped short of the full viewport so a strip of backdrop is always
+       tappable to dismiss, even on short phone screens. */
+    max-height: min(70svh, calc(100svh - 90px));
+    overflow-y: auto;
+  }
+
+  .sidebar.is-open .sidebar-collapsible {
+    display: flex;
+  }
+
+  .sidebar-nav {
+    flex-direction: column;
+  }
+
+  .sidebar-nav button {
+    white-space: normal;
+  }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    border: none;
+    padding: 0;
+    margin: 0;
+    background: rgba(0, 0, 0, 0.35);
+    cursor: default;
   }
 }
 
