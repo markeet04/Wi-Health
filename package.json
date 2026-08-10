@@ -1,0 +1,13 @@
+{
+  "name": "wi-health-deploy",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Root build/start orchestration for the Railway deploy — builds the admin panel and backend, then runs the backend which serves both.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm --prefix admin install && npm --prefix admin run build && npm --prefix backend install && npm --prefix backend run build && node scripts/copy-admin-dist.mjs",
+    "start": "node backend/dist/main.js"
+  }
+}

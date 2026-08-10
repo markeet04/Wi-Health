@@ -8,7 +8,7 @@ import {
   type OnModuleInit,
 } from '@nestjs/common'
 import crypto from 'node:crypto'
-import { applicationDefault, initializeApp, getApps, type App as FirebaseApp } from 'firebase-admin/app'
+import { applicationDefault, cert, initializeApp, getApps, type App as FirebaseApp } from 'firebase-admin/app'
 import { getAuth } from 'firebase-admin/auth'
 import { getDatabase } from 'firebase-admin/database'
 import { getMessaging } from 'firebase-admin/messaging'
@@ -1185,9 +1185,16 @@ export class AppService implements OnModuleInit {
     }
 
     try {
+      // Railway (and other PaaS hosts) have no local service-account file to
+      // point GOOGLE_APPLICATION_CREDENTIALS at — the key is injected as an
+      // env var instead. Local dev keeps using the gitignored file via
+      // applicationDefault().
+      const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON
+      const credential = serviceAccountJson ? cert(JSON.parse(serviceAccountJson)) : applicationDefault()
+
       return initializeApp(
         {
-          credential: applicationDefault(),
+          credential,
           projectId,
           databaseURL,
         },
