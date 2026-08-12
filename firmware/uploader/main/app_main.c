@@ -67,6 +67,51 @@ static char s_refresh_token[512];
 #define NVS_NS         "wihealth"
 #define NVS_KEY_REFRESH "refresh_tok"
 
+/* Per-device cloud identity. Sourced at runtime from NVS, populated either by
+ * the pairing-code claim (production: generic firmware, no per-device token) or
+ * seeded from config.h on first boot (developer convenience). */
+static char s_device_id[128];
+static char s_web_api_key[128];
+static char s_db_url[256];
+static char s_device_token[2048];   /* the ~1.4KB custom token (first-boot only) */
+
+#define NVS_KEY_DEV_ID  "dev_id"
+#define NVS_KEY_API_KEY "api_key"
+#define NVS_KEY_DB_URL  "db_url"
+#define NVS_KEY_DEV_TOK "dev_tok"
+
+/* Load the per-device config from NVS. Returns true if a device id + api key +
+ * db url are present (the minimum needed to reach Firebase; the custom token is
+ * only needed on the very first auth, after which the refresh token takes over). */
+static bool load_device_config(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) return false;
+    size_t l;
+    s_device_id[0] = s_web_api_key[0] = s_db_url[0] = s_device_token[0] = 0;
+    l = sizeof(s_device_id);   nvs_get_str(h, NVS_KEY_DEV_ID, s_device_id, &l);
+    l = sizeof(s_web_api_key); nvs_get_str(h, NVS_KEY_API_KEY, s_web_api_key, &l);
+    l = sizeof(s_db_url);      nvs_get_str(h, NVS_KEY_DB_URL, s_db_url, &l);
+    l = sizeof(s_device_token);nvs_get_str(h, NVS_KEY_DEV_TOK, s_device_token, &l);
+    nvs_close(h);
+    return s_device_id[0] && s_web_api_key[0] && s_db_url[0];
+}
+
+/* Persist the per-device config to NVS. token may be NULL/empty (e.g. once we
+ * only have the refresh token). */
+static void save_device_config(const char *devId, const char *apiKey,
+                               const char *dbUrl, const char *token)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
+    if (devId)  { nvs_set_str(h, NVS_KEY_DEV_ID, devId);  strncpy(s_device_id, devId, sizeof(s_device_id)-1); }
+    if (apiKey) { nvs_set_str(h, NVS_KEY_API_KEY, apiKey);strncpy(s_web_api_key, apiKey, sizeof(s_web_api_key)-1); }
+    if (dbUrl)  { nvs_set_str(h, NVS_KEY_DB_URL, dbUrl);  strncpy(s_db_url, dbUrl, sizeof(s_db_url)-1); }
+    if (token)  { nvs_set_str(h, NVS_KEY_DEV_TOK, token); strncpy(s_device_token, token, sizeof(s_device_token)-1); }
+    nvs_commit(h);
+    nvs_close(h);
+}
+
 /* Load the saved refresh token into s_refresh_token. Returns true if one was
  * present. */
 static bool load_refresh_token(void)
@@ -181,6 +226,7 @@ static EventGroupHandle_t s_portal_events;
 #define PORTAL_DONE_BIT BIT0
 static char s_portal_ssid[33];
 static char s_portal_pass[65];
+static char s_portal_code[16];   /* pairing code entered during setup */
 
 /* URL-decode form field in place (handles %XX and '+'). */
 static void url_decode(char *s)
@@ -225,11 +271,19 @@ static esp_err_t portal_root_handler(httpd_req_t *req)
         off += snprintf(page + off, sizeof(page) - off,
             "<option value=\"%s\">%s</option>", (char *)aps[i].ssid, (char *)aps[i].ssid);
     }
+    off += snprintf(page + off, sizeof(page) - off,
+        "</select><label>Password</label><input name=pass type=password placeholder='WiFi password'>");
+    /* Only ask for a pairing code if this device hasn't been provisioned yet. */
+    if (s_device_id[0] == 0) {
+        off += snprintf(page + off, sizeof(page) - off,
+            "<label>Pairing code</label>"
+            "<input name=code placeholder='e.g. WH7K2M9P' style='text-transform:uppercase' autocapitalize=characters>");
+    }
     snprintf(page + off, sizeof(page) - off,
-        "</select><label>Password</label><input name=pass type=password placeholder='WiFi password'>"
         "<button type=submit>Connect</button></form>"
-        "<p style='color:#9fb0a4;font-size:12px;margin-top:18px'>The device will join this network and start monitoring.</p>"
-        "</div></body></html>");
+        "<p style='color:#9fb0a4;font-size:12px;margin-top:18px'>The device joins this network%s and starts monitoring.</p>"
+        "</div></body></html>",
+        s_device_id[0] == 0 ? ", links to your account via the pairing code," : "");
     free(aps);
 
     httpd_resp_set_type(req, "text/html");
@@ -245,10 +299,11 @@ static esp_err_t portal_save_handler(httpd_req_t *req)
     if (len <= 0) { httpd_resp_send_500(req); return ESP_FAIL; }
     buf[len] = 0;
 
-    /* parse "ssid=...&pass=..." */
-    char ssid[33] = {0}, pass[65] = {0};
+    /* parse "ssid=...&pass=...&code=..." (fields may arrive in any order) */
+    char ssid[33] = {0}, pass[65] = {0}, code[16] = {0};
     char *ps = strstr(buf, "ssid=");
     char *pp = strstr(buf, "pass=");
+    char *pc = strstr(buf, "code=");
     if (ps) {
         ps += 5; char *end = strchr(ps, '&'); if (end) *end = 0;
         strncpy(ssid, ps, sizeof(ssid) - 1); url_decode(ssid);
@@ -257,10 +312,15 @@ static esp_err_t portal_save_handler(httpd_req_t *req)
         pp += 5; char *end = strchr(pp, '&'); if (end) *end = 0;
         strncpy(pass, pp, sizeof(pass) - 1); url_decode(pass);
     }
+    if (pc) {
+        pc += 5; char *end = strchr(pc, '&'); if (end) *end = 0;
+        strncpy(code, pc, sizeof(code) - 1); url_decode(code);
+    }
     if (ssid[0] == 0) { httpd_resp_send_500(req); return ESP_FAIL; }
 
     strncpy(s_portal_ssid, ssid, sizeof(s_portal_ssid) - 1);
     strncpy(s_portal_pass, pass, sizeof(s_portal_pass) - 1);
+    strncpy(s_portal_code, code, sizeof(s_portal_code) - 1);
 
     httpd_resp_set_type(req, "text/html");
     httpd_resp_sendstr(req,
@@ -401,7 +461,8 @@ static void wifi_init_sta(void)
         wifi_join(CFG_WIFI_SSID, CFG_WIFI_PASS);
         return;
     }
-    /* No creds anywhere — onboard the user via the captive portal (blocks). */
+    /* No creds anywhere — onboard the user via the captive portal (blocks until
+     * WiFi is submitted; the pairing code, if any, is claimed post-connect). */
     run_captive_portal();
 }
 
@@ -471,6 +532,60 @@ static esp_err_t http_ev(esp_http_client_event_t *e)
     return ESP_OK;
 }
 
+/* Exchange a pairing code (entered during captive-portal setup) for this
+ * device's identity + Firebase config via the backend, and persist it to NVS.
+ * This is the production path: generic firmware gets its per-device token here
+ * instead of from a flashed config.h. Returns true on success. */
+static bool claim_by_pairing_code(const char *code)
+{
+    if (!code || !code[0] || CFG_BACKEND_URL[0] == 0) return false;
+
+    char url[256];
+    snprintf(url, sizeof(url), "%s/devices/claim-code", CFG_BACKEND_URL);
+
+    char body[64];
+    snprintf(body, sizeof(body), "{\"code\":\"%s\"}", code);
+
+    static char rbuf[3072];
+    resp_t r = { rbuf, 0, sizeof(rbuf) };
+    esp_http_client_config_t cfg = {
+        .url = url, .method = HTTP_METHOD_POST,
+        .event_handler = http_ev, .user_data = &r,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+        .timeout_ms = 15000,
+        .buffer_size = 3072,       /* response holds the ~1.4KB custom token */
+        .buffer_size_tx = 1024,
+    };
+    esp_http_client_handle_t c = esp_http_client_init(&cfg);
+    esp_http_client_set_header(c, "Content-Type", "application/json");
+    esp_http_client_set_post_field(c, body, strlen(body));
+    esp_err_t err = esp_http_client_perform(c);
+    int status = esp_http_client_get_status_code(c);
+    esp_http_client_cleanup(c);
+    if (err != ESP_OK || (status != 200 && status != 201)) {
+        ESP_LOGE(TAG, "pairing claim failed err=%s status=%d", esp_err_to_name(err), status);
+        return false;
+    }
+
+    cJSON *root = cJSON_Parse(rbuf);
+    if (!root) return false;
+    cJSON *did = cJSON_GetObjectItem(root, "deviceId");
+    cJSON *tok = cJSON_GetObjectItem(root, "token");
+    cJSON *key = cJSON_GetObjectItem(root, "apiKey");
+    cJSON *db  = cJSON_GetObjectItem(root, "dbUrl");
+    bool ok = cJSON_IsString(did) && cJSON_IsString(tok) &&
+              cJSON_IsString(key) && cJSON_IsString(db);
+    if (ok) {
+        save_device_config(did->valuestring, key->valuestring,
+                           db->valuestring, tok->valuestring);
+        ESP_LOGI(TAG, "paired as device '%s' (config stored)", did->valuestring);
+    } else {
+        ESP_LOGE(TAG, "pairing claim response missing fields");
+    }
+    cJSON_Delete(root);
+    return ok;
+}
+
 /* Exchange the long-lived refresh token for a fresh ID token via the Secure
  * Token service. This is the steady-state path once first-boot provisioning has
  * stored a refresh token — it works indefinitely and never touches the (1h)
@@ -482,7 +597,7 @@ static bool firebase_refresh(void)
 
     char url[256];
     snprintf(url, sizeof(url),
-        "https://securetoken.googleapis.com/v1/token?key=%s", CFG_WEB_API_KEY);
+        "https://securetoken.googleapis.com/v1/token?key=%s", s_web_api_key);
 
     /* form-encoded body: grant_type=refresh_token&refresh_token=<token> */
     static char body[768];
@@ -539,11 +654,13 @@ static bool firebase_auth(void)
     char url[256];
     snprintf(url, sizeof(url),
         "https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=%s",
-        CFG_WEB_API_KEY);
+        s_web_api_key);
 
-    char body[1200];
+    /* Sized for the ~1.4KB custom token + JSON wrapper; static (too big for the
+     * stack). Only this task calls firebase_auth, so a static buffer is safe. */
+    static char body[2200];
     snprintf(body, sizeof(body),
-        "{\"token\":\"%s\",\"returnSecureToken\":true}", CFG_DEVICE_TOKEN);
+        "{\"token\":\"%s\",\"returnSecureToken\":true}", s_device_token);
 
     static char rbuf[3072];
     resp_t r = { rbuf, 0, sizeof(rbuf) };
@@ -607,7 +724,7 @@ static char s_url[3072];
 static bool rtdb_write(const char *path, const char *json, esp_http_client_method_t method)
 {
     char *url = s_url;
-    snprintf(s_url, sizeof(s_url), "%s/%s.json?auth=%s", CFG_DB_URL, path, s_id_token);
+    snprintf(s_url, sizeof(s_url), "%s/%s.json?auth=%s", s_db_url, path, s_id_token);
     esp_http_client_config_t cfg = {
         .url = url, .method = method,
         .crt_bundle_attach = esp_crt_bundle_attach,
@@ -638,18 +755,38 @@ static void uploader_task(void *arg)
     /* wait for wifi */
     xEventGroupWaitBits(s_wifi_events, WIFI_CONNECTED_BIT, pdFALSE, pdTRUE, portMAX_DELAY);
 
+    /* If this device isn't provisioned yet but the user entered a pairing code
+     * during setup, claim our identity + Firebase config from the backend now
+     * (we're online). This is the production path — no per-device token flash. */
+    if (s_device_id[0] == 0 && s_portal_code[0] != 0) {
+        ESP_LOGI(TAG, "claiming device identity with pairing code...");
+        if (!claim_by_pairing_code(s_portal_code)) {
+            ESP_LOGE(TAG, "======================================================");
+            ESP_LOGE(TAG, "PAIRING FAILED. The code may be wrong, expired, or");
+            ESP_LOGE(TAG, "already used. Generate a fresh code in the admin panel");
+            ESP_LOGE(TAG, "and re-run WiFi setup. (Reset creds to reopen setup.)");
+            ESP_LOGE(TAG, "======================================================");
+        }
+        s_portal_code[0] = 0;   /* single use */
+    }
+
+    if (s_device_id[0] == 0) {
+        ESP_LOGE(TAG, "no device identity — cannot upload until paired/provisioned");
+        vTaskDelete(NULL);
+        return;
+    }
+
     const bool had_refresh = (s_refresh_token[0] != 0);
     if (!firebase_ensure_token()) {
         if (!had_refresh) {
-            /* True first boot and the custom token didn't work — almost always
-             * because it expired (~1h after minting). Make this loud so it's
-             * obvious a re-mint + reflash is needed, not a mystery. */
+            /* First boot and the custom token didn't work — almost always the
+             * token expired (~1h after minting). Loud so it's obvious. */
             ESP_LOGE(TAG, "======================================================");
-            ESP_LOGE(TAG, "FIRST-BOOT AUTH FAILED. The device custom token in");
-            ESP_LOGE(TAG, "config.h is likely expired (custom tokens last ~1h");
-            ESP_LOGE(TAG, "after minting). Re-mint the token and reflash once;");
-            ESP_LOGE(TAG, "after a successful first boot a refresh token is");
-            ESP_LOGE(TAG, "stored and the device runs indefinitely.");
+            ESP_LOGE(TAG, "FIRST-BOOT AUTH FAILED. The device token is likely");
+            ESP_LOGE(TAG, "expired (custom tokens last ~1h after minting).");
+            ESP_LOGE(TAG, "Re-pair (fresh code) or re-mint + reflash once; after");
+            ESP_LOGE(TAG, "a successful first auth a refresh token is stored and");
+            ESP_LOGE(TAG, "the device runs indefinitely.");
             ESP_LOGE(TAG, "======================================================");
         } else {
             ESP_LOGE(TAG, "initial token refresh failed; will retry on first packet");
@@ -672,7 +809,7 @@ static void uploader_task(void *arg)
         /* live write */
         int n = wihealth_build_live_json(&p, json, sizeof(json));
         if (n > 0) {
-            snprintf(path, sizeof(path), "devices/%s/live", CFG_DEVICE_ID);
+            snprintf(path, sizeof(path), "devices/%.100s/live", s_device_id);
             if (rtdb_write(path, json, HTTP_METHOD_PUT)) {
                 ESP_LOGI(TAG, "live seq=%u bpm=%.1f status=%d uploaded",
                          (unsigned)p.seq, p.bpm, p.status);
@@ -684,14 +821,14 @@ static void uploader_task(void *arg)
          * fields. */
         int hn = wihealth_build_health_json(json, sizeof(json));
         if (hn > 0) {
-            snprintf(path, sizeof(path), "devices/%s/health", CFG_DEVICE_ID);
+            snprintf(path, sizeof(path), "devices/%.100s/health", s_device_id);
             rtdb_write(path, json, HTTP_METHOD_PATCH);
         }
 
         /* alert write (Module 5), if any */
         int an = wihealth_build_alert_json(&p, json, sizeof(json));
         if (an > 0) {
-            snprintf(path, sizeof(path), "alerts/%s", CFG_DEVICE_ID);
+            snprintf(path, sizeof(path), "alerts/%.100s", s_device_id);
             if (rtdb_write(path, json, HTTP_METHOD_POST)) {
                 ESP_LOGW(TAG, "ALERT type=%u votes=%u pushed to /alerts",
                          (unsigned)p.alert_type, (unsigned)p.alert_votes);
@@ -711,15 +848,26 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
 
     printf("\n===== wi-health uploader (ESP32) =====\n");
-    printf("device: %s\n", CFG_DEVICE_ID);
+
+    /* Load per-device identity from NVS. If absent but config.h carries dev
+     * values (the developer shortcut), seed NVS from them. Otherwise the device
+     * is unprovisioned and will pair via a code during captive-portal setup. */
+    if (load_device_config()) {
+        printf("device: %s (from NVS)\n", s_device_id);
+    } else if (CFG_DEVICE_ID[0] != 0 && CFG_WEB_API_KEY[0] != 0 && CFG_DB_URL[0] != 0) {
+        save_device_config(CFG_DEVICE_ID, CFG_WEB_API_KEY, CFG_DB_URL,
+                           CFG_DEVICE_TOKEN[0] ? CFG_DEVICE_TOKEN : NULL);
+        printf("device: %s (seeded from config.h)\n", s_device_id);
+    } else {
+        printf("device: (unprovisioned — will pair via code during WiFi setup)\n");
+    }
 
     /* Load a previously-stored refresh token, if any. Present => this device has
-     * booted successfully before and can renew ID tokens without the custom
-     * token. Absent => first boot, we'll exchange the custom token once. */
+     * authenticated before and can renew ID tokens without the custom token. */
     if (load_refresh_token()) {
-        printf("auth: using stored refresh token (custom token not needed)\n");
+        printf("auth: using stored refresh token\n");
     } else {
-        printf("auth: first boot — will exchange the custom token once\n");
+        printf("auth: no refresh token yet — will exchange the custom token on first auth\n");
     }
 
     s_pkt_q = xQueueCreate(8, sizeof(wihealth_result_t));

@@ -10,6 +10,22 @@ enum ComplaintStatus { open, inProgress, resolved }
 
 enum DeviceRequestStatus { pending, fulfilled, declined }
 
+/// A pairing code issued by the admin for the user's device, delivered in-app.
+/// The user enters it during the device's WiFi setup to link it to their account.
+class PairingCode {
+  PairingCode({
+    required this.code,
+    required this.deviceId,
+    required this.expiresAt,
+  });
+
+  final String code;
+  final String deviceId;
+  final DateTime expiresAt;
+
+  bool get isExpired => DateTime.now().isAfter(expiresAt);
+}
+
 /// A caretaker's request for the admin to provision + assign a device. The
 /// admin fulfils it by assigning a device (which then appears via the normal
 /// assignment listener) and marking the request fulfilled.
@@ -313,6 +329,26 @@ class AppState extends ChangeNotifier {
   void setDeviceRequests(List<DeviceRequest> values) {
     deviceRequests = values;
     notifyListeners();
+  }
+
+  /// A pairing code the admin issued for this user's device, to enter during
+  /// device WiFi setup. Null when none is pending. Set by the repository.
+  PairingCode? pairingCode;
+
+  void setPairingCode(PairingCode? value) {
+    pairingCode = value;
+    notifyListeners();
+  }
+
+  /// Handler that clears the pending pairing code once the user dismisses it.
+  Future<void> Function()? dismissPairingCodeHandler;
+
+  Future<void> dismissPairingCode() async {
+    pairingCode = null;
+    notifyListeners();
+    if (dismissPairingCodeHandler != null) {
+      await dismissPairingCodeHandler!();
+    }
   }
 
   Future<String?> requestDevice({

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import './AdminDevicesPage.css'
 import {
   assignAdminDevice,
+  createDevicePairingCode,
   declineAdminDeviceRequest,
   fetchAdminDevices,
   unassignAdminDevice,
@@ -29,6 +30,9 @@ function AdminDevicesPage({ accessToken }) {
   const [pendingUnassign, setPendingUnassign] = useState(null)
   const [statusMessage, setStatusMessage] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  // Pairing-code modal: { deviceId, code, expiresAt } once generated.
+  const [pairing, setPairing] = useState(null)
+  const [pairingBusy, setPairingBusy] = useState('')
 
   const loadDevices = async () => {
     if (!accessToken) {
@@ -124,6 +128,21 @@ function AdminDevicesPage({ accessToken }) {
       setStatusMessage(error instanceof Error ? error.message : 'Unable to decline request.')
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  // Generate a pairing code for a device and show it so the admin can hand it
+  // to the caretaker (who enters it during the device's WiFi setup).
+  const generatePairingCode = async (deviceId) => {
+    if (!accessToken) return
+    setPairingBusy(deviceId)
+    try {
+      const res = await createDevicePairingCode(accessToken, deviceId)
+      setPairing({ deviceId, code: res.code, expiresAt: res.expiresAt })
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : 'Unable to generate pairing code.')
+    } finally {
+      setPairingBusy('')
     }
   }
 
@@ -281,6 +300,14 @@ function AdminDevicesPage({ accessToken }) {
                       <button type="button" className="ghost-btn" onClick={() => openReassignModal(device)}>
                         {device.ownerUid ? 'Reassign' : 'Assign'}
                       </button>
+                      <button
+                        type="button"
+                        className="ghost-btn"
+                        disabled={pairingBusy === device.id}
+                        onClick={() => generatePairingCode(device.id)}
+                      >
+                        {pairingBusy === device.id ? 'Generating…' : 'Pairing Code'}
+                      </button>
                       {device.ownerUid ? (
                         <button type="button" className="delete-btn" onClick={() => setPendingUnassign(device)}>Unassign</button>
                       ) : null}
@@ -292,6 +319,34 @@ function AdminDevicesPage({ accessToken }) {
           </table>
         )}
       </div>
+
+      {pairing ? (
+        <div className="modal-backdrop" onClick={() => setPairing(null)}>
+          <div className="modal-card confirmation-card" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-card__head">
+              <h3>Device Pairing Code</h3>
+              <button type="button" className="ghost-btn" onClick={() => setPairing(null)}>Close</button>
+            </div>
+            <p className="hint-text">
+              Give this code to the caretaker. They enter it during the device’s
+              WiFi setup for <strong>{pairing.deviceId}</strong> — no token flashing needed.
+            </p>
+            <div className="pairing-code">{pairing.code}</div>
+            <p className="hint-text">
+              Expires {pairing.expiresAt ? new Date(pairing.expiresAt).toLocaleTimeString() : 'in ~30 min'} · single use.
+            </p>
+            <div className="form-actions">
+              <button
+                type="button"
+                onClick={() => navigator.clipboard?.writeText(pairing.code)}
+              >
+                Copy Code
+              </button>
+              <button type="button" className="ghost-btn" onClick={() => setPairing(null)}>Done</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {pendingUnassign ? (
         <div className="modal-backdrop" onClick={() => setPendingUnassign(null)}>

@@ -163,6 +163,30 @@ export class AppController {
     return this.appService.mintDeviceToken(token, deviceId)
   }
 
+  // Generate a short single-use pairing code for a device (admin-only). The
+  // caretaker types it into the device's captive-portal setup; the device then
+  // exchanges it (below) for its real token — no per-device flashing needed.
+  @Post('admin/devices/:deviceId/pairing-code')
+  createPairingCode(@Param('deviceId') deviceId: string, @Headers('authorization') authorization?: string) {
+    const token = bearerToken(authorization)
+    if (!token) {
+      throw new UnauthorizedException('Missing bearer token.')
+    }
+
+    return this.appService.createPairingCode(token, deviceId)
+  }
+
+  // Device-facing, UNAUTHENTICATED: the ESP32 exchanges a pairing code for its
+  // real custom token during provisioning (it has no token yet). Rate/abuse is
+  // bounded by the code being short-lived + single-use + admin-issued.
+  @Post('devices/claim-code')
+  claimByPairingCode(@Body() body: { code?: string }) {
+    if (!body?.code) {
+      throw new UnauthorizedException('Pairing code is required.')
+    }
+    return this.appService.claimByPairingCode(body.code)
+  }
+
   // Module 8: device -> patient -> App User assignment (admin-only).
   @Get('admin/devices')
   listDevices(@Headers('authorization') authorization?: string) {

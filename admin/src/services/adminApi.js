@@ -262,6 +262,19 @@ export async function declineAdminDeviceRequest(accessToken, requestId) {
   })
 }
 
+// Generate a short single-use pairing code for a device. The caretaker enters
+// it during the device's WiFi setup to provision it — no token flashing.
+export async function createDevicePairingCode(accessToken, deviceId) {
+  if (!accessToken) {
+    throw new Error('Admin session is required.')
+  }
+
+  return request(`/admin/devices/${deviceId}/pairing-code`, {
+    method: 'POST',
+    token: accessToken,
+  })
+}
+
 export async function sendComplaintMessage(accessToken, complaintId, payload) {
   if (!accessToken) {
     throw new Error('Admin session is required.')

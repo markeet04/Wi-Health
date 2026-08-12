@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import '../models.dart';
 import '../theme.dart';
 import '../widgets/charts.dart';
@@ -40,6 +41,10 @@ class HomeScreen extends StatelessWidget {
               children: [
                 _topBar(),
                 const SizedBox(height: 18),
+                if (app.pairingCode != null && !app.pairingCode!.isExpired) ...[
+                  _pairingCard(context, app.pairingCode!),
+                  const SizedBox(height: 16),
+                ],
                 _statusCard(allStable, lowSignal),
                 const SizedBox(height: 24),
                 SectionHeader(
@@ -125,6 +130,93 @@ class HomeScreen extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  Widget _pairingCard(BuildContext context, PairingCode pc) {
+    return SoftCard(
+      color: WiColors.primarySoft,
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const CircleBadge(
+                icon: Icons.router_outlined,
+                color: WiColors.primary,
+                background: Colors.white,
+                size: 40,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text('Your device is ready to set up',
+                    style: WiText.title.copyWith(fontSize: 14.5)),
+              ),
+              GestureDetector(
+                onTap: () => app.dismissPairingCode(),
+                child: const Icon(Icons.close_rounded,
+                    color: WiColors.inkFaint, size: 20),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Connect your phone to the "Wi-Health-Setup" WiFi, then enter this '
+            'pairing code to link the device to your account:',
+            style: WiText.caption.copyWith(color: WiColors.inkSoft),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: WiColors.line),
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              pc.code,
+              style: const TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 26,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 6,
+                color: WiColors.primaryDeep,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              GestureDetector(
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: pc.code));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Pairing code copied.')));
+                },
+                child: const StatusPill(
+                  text: 'Copy code',
+                  color: WiColors.primary,
+                  background: Colors.white,
+                  icon: Icons.copy_rounded,
+                ),
+              ),
+              const Spacer(),
+              Text('Expires ${_shortTime(pc.expiresAt)}',
+                  style: WiText.caption),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _shortTime(DateTime t) {
+    final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
+    final m = t.minute.toString().padLeft(2, '0');
+    final ap = t.hour < 12 ? 'AM' : 'PM';
+    return '$h:$m $ap';
   }
 
   Widget _statusCard(bool allStable, List<Patient> lowSignal) {

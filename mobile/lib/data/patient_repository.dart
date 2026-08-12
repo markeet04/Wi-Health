@@ -35,9 +35,12 @@ class PatientRepository {
     _appState.claimDeviceHandler = _claimDevice;
     _appState.requestDeviceHandler = _requestDevice;
 
+    _appState.dismissPairingCodeHandler = _dismissPairingCode;
+
     _listenUserSettings();
     _listenComplaints();
     _listenDeviceRequests();
+    _listenPairingCode();
     _listenDevices();
     _registerFcmToken();
 
@@ -90,6 +93,7 @@ class PatientRepository {
     _appState.dismissAlertHandler = null;
     _appState.claimDeviceHandler = null;
     _appState.requestDeviceHandler = null;
+    _appState.dismissPairingCodeHandler = null;
     _disposed = true;
   }
 
@@ -193,6 +197,36 @@ class PatientRepository {
       final raw = _castMap(event.snapshot.value as Map?);
       _appState.setDeviceRequests(_buildDeviceRequests(raw));
     }));
+  }
+
+  /// Watch for a pairing code the admin issued for this user's device.
+  void _listenPairingCode() {
+    final ref = _db.ref('users/${_user.uid}/pairingCode');
+    _subscriptions.add(ref.onValue.listen((event) {
+      if (_disposed) return;
+      final raw = event.snapshot.value;
+      if (raw == null) {
+        _appState.setPairingCode(null);
+        return;
+      }
+      final m = _castMap(raw as Map?);
+      final code = m['code']?.toString() ?? '';
+      final expiresAt = _toInt(m['expiresAt']);
+      if (code.isEmpty) {
+        _appState.setPairingCode(null);
+        return;
+      }
+      _appState.setPairingCode(PairingCode(
+        code: code,
+        deviceId: m['deviceId']?.toString() ?? '',
+        expiresAt: DateTime.fromMillisecondsSinceEpoch(expiresAt),
+      ));
+    }));
+  }
+
+  Future<void> _dismissPairingCode() async {
+    if (_disposed) return;
+    await _db.ref('users/${_user.uid}/pairingCode').remove().catchError((_) {});
   }
 
   List<DeviceRequest> _buildDeviceRequests(Map<String, dynamic> raw) {

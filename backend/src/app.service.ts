@@ -790,6 +790,136 @@ export class AppService implements OnModuleInit {
   }
 
   /**
+   * Generate a short, single-use pairing code for a device (admin-only). The
+   * caretaker enters this code during captive-portal WiFi setup; the device
+   * then exchanges it (unauthenticated, over the new WiFi) for its real custom
+   * token via claimByPairingCode(). This removes the flash-a-token-per-device
+   * step — firmware is generic and gets its identity at provisioning time.
+   */
+  async createPairingCode(accessToken: string, deviceId: string) {
+    const session = await this.restoreSession(accessToken)
+    if (session.user.role !== 'admin') {
+      throw new ForbiddenException('Admin access required.')
+    }
+    const id = (deviceId ?? '').trim()
+    if (!id || !/^[A-Za-z0-9_-]{3,128}$/.test(id)) {
+      throw new BadRequestException('Valid deviceId required (3-128 chars: A-Z a-z 0-9 _ -).')
+    }
+
+    // Human-enterable code: 8 chars from an unambiguous alphabet (no 0/O/1/I).
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+    const bytes = crypto.randomBytes(8)
+    let code = ''
+    for (let i = 0; i < 8; i++) code += alphabet[bytes[i] % alphabet.length]
+    const expiresAt = Date.now() + 30 * 60 * 1000 // 30 minutes to provision
+
+    if (!this.firebaseEnabled()) {
+      return { ok: true, deviceId: id, code, expiresAt, mode: 'demo' as const }
+    }
+    const firebaseApp = this.firebaseApp
+    if (!firebaseApp) {
+      throw new BadRequestException('Firebase is not configured.')
+    }
+    const db = getDatabase(firebaseApp)
+    // Store server-side, keyed by code, single-use.
+    await db.ref(`pairingCodes/${code}`).set({
+      deviceId: id,
+      expiresAt,
+      used: false,
+      createdAt: Date.now(),
+    })
+
+    // If this device is assigned to a user, deliver the code to them in-app
+    // (a card they can read) + an FCM push — so the admin doesn't have to relay
+    // it out-of-band. Written to the user's own node, which only they can read.
+    let deliveredTo = ''
+    const metaSnap = await db.ref(`devices/${id}/meta`).get()
+    const ownerUid = String((metaSnap.val() as Record<string, unknown> | null)?.ownerUid ?? '')
+    if (ownerUid) {
+      await db.ref(`users/${ownerUid}/pairingCode`).set({
+        code,
+        deviceId: id,
+        expiresAt,
+        createdAt: Date.now(),
+      })
+      deliveredTo = ownerUid
+      await this.pushPairingCode(ownerUid, id, code).catch(() => undefined)
+    }
+
+    return { ok: true, deviceId: id, code, expiresAt, deliveredTo, mode: 'firebase' as const }
+  }
+
+  /** FCM push telling the owner their device is ready to set up (+ the code). */
+  private async pushPairingCode(ownerUid: string, deviceId: string, code: string) {
+    const firebaseApp = this.firebaseApp
+    if (!firebaseApp) return
+    const db = getDatabase(firebaseApp)
+    const tokensSnapshot = await db.ref(`users/${ownerUid}/fcmTokens`).get()
+    const tokens = Object.keys((tokensSnapshot.val() as Record<string, unknown>) ?? {})
+    if (tokens.length === 0) return
+    await getMessaging(firebaseApp).sendEachForMulticast({
+      tokens,
+      notification: {
+        title: 'Device ready to set up',
+        body: `Pairing code: ${code} — enter it during your device's WiFi setup.`,
+      },
+      data: { type: 'pairing', deviceId, code },
+      android: { priority: 'high' },
+    })
+  }
+
+  /**
+   * Device-facing (UNAUTHENTICATED — the device has no token yet): exchange a
+   * valid pairing code for the device's real custom token + the config it needs
+   * to reach Firebase. Validates the code exists, hasn't expired, and hasn't
+   * been used; marks it used; mints the token. Called by the uploader firmware
+   * right after it joins WiFi during captive-portal setup.
+   */
+  async claimByPairingCode(code: string) {
+    const c = (code ?? '').trim().toUpperCase()
+    if (!/^[A-Z0-9]{8}$/.test(c)) {
+      throw new BadRequestException('Invalid pairing code.')
+    }
+    if (!this.firebaseEnabled()) {
+      throw new BadRequestException('Pairing is unavailable in demo mode.')
+    }
+    const firebaseApp = this.firebaseApp
+    if (!firebaseApp) {
+      throw new BadRequestException('Firebase is not configured.')
+    }
+
+    const db = getDatabase(firebaseApp)
+    const ref = db.ref(`pairingCodes/${c}`)
+    const snap = await ref.get()
+    if (!snap.exists()) {
+      throw new UnauthorizedException('Pairing code not found.')
+    }
+    const rec = snap.val() as { deviceId?: string; expiresAt?: number; used?: boolean }
+    if (rec.used) {
+      throw new UnauthorizedException('Pairing code already used.')
+    }
+    if (!rec.expiresAt || Date.now() > rec.expiresAt) {
+      throw new UnauthorizedException('Pairing code expired.')
+    }
+    const deviceId = String(rec.deviceId ?? '')
+    if (!deviceId) {
+      throw new UnauthorizedException('Pairing code is malformed.')
+    }
+
+    // Burn the code first (single-use), then mint.
+    await ref.update({ used: true, usedAt: Date.now() })
+    const token = await getAuth(firebaseApp).createCustomToken(deviceId, { device: true })
+
+    return {
+      ok: true,
+      deviceId,
+      token,
+      apiKey: process.env.FIREBASE_WEB_API_KEY ?? '',
+      dbUrl: process.env.FIREBASE_DATABASE_URL ?? '',
+    }
+  }
+
+  /**
    * Module 8: device -> patient -> App User assignment. Mirrors
    * backend/scripts/link-device.mjs but admin-authed and callable from the
    * panel. Two writes: /users/$uid/devices/$deviceId=true (patient switcher)
