@@ -540,8 +540,10 @@ static bool claim_by_pairing_code(const char *code)
 {
     if (!code || !code[0] || CFG_BACKEND_URL[0] == 0) return false;
 
+    /* Backend routes are under the /api global prefix (main.ts setGlobalPrefix).
+     * CFG_BACKEND_URL is the bare host, so add /api here. */
     char url[256];
-    snprintf(url, sizeof(url), "%s/devices/claim-code", CFG_BACKEND_URL);
+    snprintf(url, sizeof(url), "%s/api/devices/claim-code", CFG_BACKEND_URL);
 
     char body[64];
     snprintf(body, sizeof(body), "{\"code\":\"%s\"}", code);
@@ -756,18 +758,31 @@ static void uploader_task(void *arg)
     xEventGroupWaitBits(s_wifi_events, WIFI_CONNECTED_BIT, pdFALSE, pdTRUE, portMAX_DELAY);
 
     /* If this device isn't provisioned yet but the user entered a pairing code
-     * during setup, claim our identity + Firebase config from the backend now
-     * (we're online). This is the production path — no per-device token flash. */
+     * during setup, claim our identity + Firebase config from the backend. This
+     * is the production path — no per-device token flash. Retried until it
+     * succeeds so a flaky/roaming AP that drops the TLS handshake doesn't
+     * permanently fail provisioning (the code stays valid until its TTL). */
     if (s_device_id[0] == 0 && s_portal_code[0] != 0) {
-        ESP_LOGI(TAG, "claiming device identity with pairing code...");
-        if (!claim_by_pairing_code(s_portal_code)) {
+        int attempt = 0;
+        while (s_device_id[0] == 0 && attempt < 60) {
+            /* wait for a live connection before each attempt */
+            xEventGroupWaitBits(s_wifi_events, WIFI_CONNECTED_BIT, pdFALSE, pdTRUE, portMAX_DELAY);
+            ESP_LOGI(TAG, "claiming device identity with pairing code... (attempt %d)", ++attempt);
+            if (claim_by_pairing_code(s_portal_code)) break;
+            ESP_LOGW(TAG, "pairing claim attempt failed (likely a WiFi drop mid-request) "
+                          "— retrying in 4s. Code stays valid until it expires.");
+            vTaskDelay(pdMS_TO_TICKS(4000));
+        }
+        if (s_device_id[0] != 0) {
+            s_portal_code[0] = 0;   /* success — single use */
+        } else {
             ESP_LOGE(TAG, "======================================================");
-            ESP_LOGE(TAG, "PAIRING FAILED. The code may be wrong, expired, or");
-            ESP_LOGE(TAG, "already used. Generate a fresh code in the admin panel");
-            ESP_LOGE(TAG, "and re-run WiFi setup. (Reset creds to reopen setup.)");
+            ESP_LOGE(TAG, "PAIRING FAILED after many attempts. Likely an unstable");
+            ESP_LOGE(TAG, "WiFi (a roaming phone hotspot drops the TLS handshake).");
+            ESP_LOGE(TAG, "Use a stable router, or move closer, then reset and retry");
+            ESP_LOGE(TAG, "with a fresh code.");
             ESP_LOGE(TAG, "======================================================");
         }
-        s_portal_code[0] = 0;   /* single use */
     }
 
     if (s_device_id[0] == 0) {
