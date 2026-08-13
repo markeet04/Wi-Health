@@ -273,6 +273,18 @@ export async function declineAdminDeviceRequest(accessToken, requestId) {
   })
 }
 
+// Register a new device with an auto-generated unique id (Dev-N).
+export async function registerAdminDevice(accessToken) {
+  if (!accessToken) {
+    throw new Error('Admin session is required.')
+  }
+
+  return request('/admin/devices/register', {
+    method: 'POST',
+    token: accessToken,
+  })
+}
+
 // Generate a short single-use pairing code for a device. The caretaker enters
 // it during the device's WiFi setup to provision it — no token flashing.
 export async function createDevicePairingCode(accessToken, deviceId) {

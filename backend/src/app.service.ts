@@ -735,6 +735,61 @@ export class AppService implements OnModuleInit {
   }
 
   /**
+   * Register a brand-new device with an auto-generated, guaranteed-unique id
+   * (Dev-1, Dev-2, ...). Admins never type a device id, so two devices can never
+   * collide on the same identity. Uses an atomic counter transaction so two
+   * concurrent registrations can't grab the same number; also skips any id that
+   * somehow already exists. Seeds a minimal meta and returns the new deviceId.
+   */
+  async registerDevice(accessToken: string) {
+    const session = await this.restoreSession(accessToken)
+    if (session.user.role !== 'admin') {
+      throw new ForbiddenException('Admin access required.')
+    }
+    if (!this.firebaseEnabled()) {
+      // demo mode: fabricate a plausible id without persistence
+      const n = this.demoDeviceMeta.size + 1
+      return { ok: true, deviceId: `Dev-${n}`, mode: 'demo' as const }
+    }
+    const firebaseApp = this.firebaseApp
+    if (!firebaseApp) {
+      throw new BadRequestException('Firebase is not configured.')
+    }
+
+    const db = getDatabase(firebaseApp)
+    const counterRef = db.ref('deviceCounter')
+
+    // Allocate the next free Dev-N. The transaction guarantees no two callers
+    // get the same number; the existence check covers ids created out-of-band.
+    let deviceId = ''
+    for (let guard = 0; guard < 50 && !deviceId; guard++) {
+      const res = await counterRef.transaction((current) => (typeof current === 'number' ? current : 0) + 1)
+      const n = Number(res.snapshot.val() ?? 0)
+      const candidate = `Dev-${n}`
+      const exists = await db.ref(`devices/${candidate}/meta`).get()
+      if (!exists.exists()) deviceId = candidate
+      // else: collision with a manually-created id — loop bumps the counter again
+    }
+    if (!deviceId) {
+      throw new BadRequestException('Could not allocate a unique device id.')
+    }
+
+    await db.ref(`devices/${deviceId}/meta`).set({
+      model: 'esp32-s3',
+      firmware: 'dsp_live',
+      room: '',
+      patientName: '',
+      patientRelation: '',
+      normalLow: 8,
+      normalHigh: 30,
+      ownerUid: '',
+      provisionedAt: Date.now(),
+    })
+
+    return { ok: true, deviceId, mode: 'firebase' as const }
+  }
+
+  /**
    * Module 4 device provisioning: mint a long-lived Firebase custom token for
    * an ESP32 sensor. uid = deviceId, claim device=true — this is exactly what
    * cloud/database.rules.json requires to write /devices/$deviceId/live

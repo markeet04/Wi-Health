@@ -6,6 +6,7 @@ import '../widgets/charts.dart';
 import '../widgets/common.dart';
 import '../widgets/logo.dart';
 import 'link_device_screen.dart';
+import 'pairing_wizard_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({
@@ -43,6 +44,14 @@ class HomeScreen extends StatelessWidget {
                 const SizedBox(height: 18),
                 if (app.pairingCode != null && !app.pairingCode!.isExpired) ...[
                   _pairingCard(context, app.pairingCode!),
+                  const SizedBox(height: 16),
+                ],
+                // First-run welcome for a brand-new account with no device yet:
+                // a short intro + what each tab does + a clear way forward.
+                if (app.patients.isEmpty &&
+                    !app.welcomeDismissed &&
+                    (app.pairingCode == null || app.pairingCode!.isExpired)) ...[
+                  _welcomeCard(context),
                   const SizedBox(height: 16),
                 ],
                 _statusCard(allStable, lowSignal),
@@ -132,6 +141,92 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
+  Widget _welcomeCard(BuildContext context) {
+    return SoftCard(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const CircleBadge(
+                icon: Icons.waving_hand_rounded,
+                color: WiColors.primary,
+                background: WiColors.primarySoft,
+                size: 42,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text('Welcome to Wi-Health',
+                    style: WiText.title.copyWith(fontSize: 15.5)),
+              ),
+              GestureDetector(
+                onTap: () => app.dismissWelcome(),
+                child: const Icon(Icons.close_rounded,
+                    color: WiColors.inkFaint, size: 20),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Contactless breathing monitoring for the people you care about. '
+            'Here\'s what you\'ll find:',
+            style: WiText.caption.copyWith(color: WiColors.inkSoft),
+          ),
+          const SizedBox(height: 14),
+          _tabHint(Icons.home_rounded, 'Home',
+              'Your patients at a glance and recent activity.'),
+          _tabHint(Icons.notifications_none_rounded, 'Alerts',
+              'Apnea, fast or slow breathing — as they happen.'),
+          _tabHint(Icons.monitor_heart_outlined, 'Live',
+              'A real-time breathing readout for the selected patient.'),
+          _tabHint(Icons.history_rounded, 'History',
+              'Daily trends, sessions and the anomaly timeline.'),
+          _tabHint(Icons.person_outline_rounded, 'Profile',
+              'Your account, devices and support.'),
+          const SizedBox(height: 16),
+          Text(
+            'To start monitoring, request a device — your administrator will '
+            'assign one and send you a pairing code.',
+            style: WiText.caption.copyWith(color: WiColors.inkSoft),
+          ),
+          const SizedBox(height: 14),
+          PrimaryButton(
+            text: 'Request a device',
+            trailingArrow: true,
+            onPressed: () => _linkDevice(context),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _tabHint(IconData icon, String label, String desc) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 19, color: WiColors.primary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                style: WiText.caption.copyWith(color: WiColors.inkSoft),
+                children: [
+                  TextSpan(
+                      text: '$label — ',
+                      style: WiText.title.copyWith(fontSize: 12.5)),
+                  TextSpan(text: desc),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _pairingCard(BuildContext context, PairingCode pc) {
     return SoftCard(
       color: WiColors.primarySoft,
@@ -206,6 +301,13 @@ class HomeScreen extends StatelessWidget {
               Text('Expires ${_shortTime(pc.expiresAt)}',
                   style: WiText.caption),
             ],
+          ),
+          const SizedBox(height: 12),
+          PrimaryButton(
+            text: 'Show set-up guide',
+            trailingArrow: true,
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => PairingWizardScreen(code: pc.code))),
           ),
         ],
       ),

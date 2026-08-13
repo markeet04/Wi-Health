@@ -600,6 +600,16 @@ class AppState extends ChangeNotifier {
   bool urgentOnly = false;
   bool soundEnabled = true;
 
+  /// Whether the user dismissed the first-run welcome card (session-local; the
+  /// card only shows when they have no device anyway).
+  bool welcomeDismissed = false;
+
+  void dismissWelcome() {
+    if (welcomeDismissed) return;
+    welcomeDismissed = true;
+    notifyListeners();
+  }
+
   void setPush(bool v) {
     if (pushEnabled == v) return;
     pushEnabled = v;

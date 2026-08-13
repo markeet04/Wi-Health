@@ -6,6 +6,7 @@ import {
   declineAdminDeviceRequest,
   deleteAdminDevice,
   fetchAdminDevices,
+  registerAdminDevice,
   unassignAdminDevice,
 } from '../../../services/adminApi'
 
@@ -35,6 +36,7 @@ function AdminDevicesPage({ accessToken }) {
   // Pairing-code modal: { deviceId, code, expiresAt } once generated.
   const [pairing, setPairing] = useState(null)
   const [pairingBusy, setPairingBusy] = useState('')
+  const [registering, setRegistering] = useState(false)
 
   const loadDevices = async () => {
     if (!accessToken) {
@@ -130,6 +132,23 @@ function AdminDevicesPage({ accessToken }) {
       setStatusMessage(error instanceof Error ? error.message : 'Unable to decline request.')
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  // Register a new device — the backend allocates a unique Dev-N id so admins
+  // never type one (and two devices can't collide). Then reloads the list.
+  const registerDevice = async () => {
+    if (!accessToken) return
+    setRegistering(true)
+    setStatusMessage('')
+    try {
+      const res = await registerAdminDevice(accessToken)
+      await loadDevices()
+      setStatusMessage(`Registered new device: ${res.deviceId}. Generate a pairing code to hand to the user.`)
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : 'Unable to register device.')
+    } finally {
+      setRegistering(false)
     }
   }
 
@@ -280,15 +299,22 @@ function AdminDevicesPage({ accessToken }) {
           <h2>Device Assignment</h2>
           <div className="devices-header-actions">
             <span className="pill">{sortedDevices.length} Devices</span>
+            <button type="button" className="ghost-btn" onClick={registerDevice} disabled={registering}>
+              {registering ? 'Registering…' : '+ Register Device'}
+            </button>
             <button type="button" className="create-btn" onClick={openAssignNewModal}>Assign Device</button>
           </div>
         </div>
+
+        {statusMessage && !isModalOpen ? (
+          <p className="hint-text" style={{ marginBottom: '0.75rem' }}>{statusMessage}</p>
+        ) : null}
 
         {loading ? (
           <p className="hint-text">Loading devices…</p>
         ) : sortedDevices.length === 0 ? (
           <p className="hint-text">
-            No devices registered yet. Mint a device token first, then use "Assign Device" to link it to a patient account.
+            No devices yet. Click "Register Device" to create one (it gets a unique Dev-N id), then generate a pairing code to hand to the user.
           </p>
         ) : (
           <table>
