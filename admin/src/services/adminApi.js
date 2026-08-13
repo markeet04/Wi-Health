@@ -251,6 +251,17 @@ export async function unassignAdminDevice(accessToken, deviceId) {
   })
 }
 
+export async function deleteAdminDevice(accessToken, deviceId) {
+  if (!accessToken) {
+    throw new Error('Admin session is required.')
+  }
+
+  return request(`/admin/devices/${deviceId}`, {
+    method: 'DELETE',
+    token: accessToken,
+  })
+}
+
 export async function declineAdminDeviceRequest(accessToken, requestId) {
   if (!accessToken) {
     throw new Error('Admin session is required.')

@@ -1075,6 +1075,49 @@ export class AppService implements OnModuleInit {
     return { ok: true, deviceId: id }
   }
 
+  /**
+   * Fully delete a device from the fleet (admin-only): removes its record
+   * (meta/live/health/history), its alerts, and any owner's link to it. Note: a
+   * device that is still powered on and authenticated could recreate its /live
+   * node on the next write — full hardware retirement (revoking the device auth)
+   * is out of scope here.
+   */
+  async deleteDevice(accessToken: string, deviceId: string) {
+    const session = await this.restoreSession(accessToken)
+    if (session.user.role !== 'admin') {
+      throw new ForbiddenException('Admin access required.')
+    }
+    const id = (deviceId ?? '').trim()
+    if (!id) {
+      throw new BadRequestException('deviceId is required.')
+    }
+
+    if (!this.firebaseEnabled()) {
+      const previous = this.demoDeviceMeta.get(id)
+      if (previous?.ownerUid) {
+        this.detachDemoDeviceFromOwner(id, previous.ownerUid)
+      }
+      this.demoDeviceMeta.delete(id)
+      return { ok: true, deviceId: id }
+    }
+
+    const firebaseApp = this.firebaseApp
+    if (!firebaseApp) {
+      throw new BadRequestException('Firebase is not configured.')
+    }
+
+    const db = getDatabase(firebaseApp)
+    const metaSnap = await db.ref(`devices/${id}/meta`).get()
+    const ownerUid = metaSnap.exists() ? String((metaSnap.val() as Record<string, unknown>).ownerUid ?? '') : ''
+    if (ownerUid) {
+      await db.ref(`users/${ownerUid}/devices/${id}`).remove().catch(() => undefined)
+    }
+    await db.ref(`devices/${id}`).remove()
+    await db.ref(`alerts/${id}`).remove().catch(() => undefined)
+
+    return { ok: true, deviceId: id }
+  }
+
   async listDevices(accessToken: string): Promise<AdminDevicesResponse> {
     const session = await this.restoreSession(accessToken)
     if (session.user.role !== 'admin') {

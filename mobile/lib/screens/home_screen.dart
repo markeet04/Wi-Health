@@ -425,7 +425,7 @@ class HomeScreen extends StatelessWidget {
         ),
       'signal' => (Icons.wifi_tethering_rounded, WiColors.blue, WiColors.blueSoft),
       'session' => (
-          Icons.nightlight_round,
+          Icons.monitor_heart_outlined,
           WiColors.nightIndigo,
           WiColors.nightSoft
         ),

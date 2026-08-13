@@ -323,6 +323,18 @@ class AppState extends ChangeNotifier {
     required String room,
   })? requestDeviceHandler;
 
+  /// Optional handler to remove (unlink) a device from this account. Returns
+  /// null on success or an error string. Null in mock mode.
+  Future<String?> Function(String deviceId)? removeDeviceHandler;
+
+  Future<String?> removeDevice(String deviceId) async {
+    final handler = removeDeviceHandler;
+    if (handler == null) {
+      return 'Removing a device is only available on the live data connection.';
+    }
+    return handler(deviceId);
+  }
+
   /// Pending/fulfilled device requests this user has made, newest first.
   List<DeviceRequest> deviceRequests = [];
 

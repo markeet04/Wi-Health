@@ -37,8 +37,8 @@
       "$deviceId": {
         ".read": "auth != null && (auth.token.role === 'admin' || root.child('users').child(auth.uid).child('devices').child($deviceId).exists())",
         "meta": {
-          ".write": "auth != null && (auth.token.role === 'admin' || ((!data.child('ownerUid').exists() || data.child('ownerUid').val() === '') && newData.child('ownerUid').val() === auth.uid))",
-          "ownerUid": { ".validate": "auth.token.role === 'admin' || newData.val() === auth.uid" },
+          ".write": "auth != null && (auth.token.role === 'admin' || ((!data.child('ownerUid').exists() || data.child('ownerUid').val() === '') && newData.child('ownerUid').val() === auth.uid) || (data.child('ownerUid').val() === auth.uid && newData.child('ownerUid').val() === ''))",
+          "ownerUid": { ".validate": "auth.token.role === 'admin' || newData.val() === auth.uid || newData.val() === ''" },
           "normalLow": { ".validate": "newData.isNumber() && newData.val() > 0" },
           "normalHigh": { ".validate": "newData.isNumber() && newData.val() <= 60" }
         },

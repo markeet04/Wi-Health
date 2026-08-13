@@ -53,7 +53,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     children: [
                       Row(
                         children: [
-                          Text('NIGHTLY AVERAGE · LAST 7 DAYS',
+                          Text('DAILY AVERAGE · LAST 7 DAYS',
                               style: WiText.label),
                           const Spacer(),
                           Text('bpm', style: WiText.caption),
@@ -160,7 +160,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
           Row(
             children: [
               const CircleBadge(
-                icon: Icons.nightlight_round,
+                icon: Icons.monitor_heart_outlined,
                 color: WiColors.nightIndigo,
                 background: WiColors.nightSoft,
                 size: 40,

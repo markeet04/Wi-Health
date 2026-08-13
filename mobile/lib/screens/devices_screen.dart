@@ -27,7 +27,7 @@ class DevicesScreen extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               for (final p in app.patients) ...[
-                _deviceCard(p),
+                _deviceCard(context, p),
                 const SizedBox(height: 14),
               ],
             ],
@@ -37,7 +37,7 @@ class DevicesScreen extends StatelessWidget {
     );
   }
 
-  Widget _deviceCard(Patient p) {
+  Widget _deviceCard(BuildContext context, Patient p) {
     return SoftCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -97,6 +97,55 @@ class DevicesScreen extends StatelessWidget {
                     style: WiText.title.copyWith(fontSize: 12.5)),
               ),
             ],
+          ),
+          const SizedBox(height: 6),
+          const Divider(height: 1),
+          const SizedBox(height: 4),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () => _confirmRemove(context, p),
+              icon: const Icon(Icons.link_off_rounded,
+                  color: WiColors.red, size: 18),
+              label: const Text('Remove device',
+                  style: TextStyle(
+                      color: WiColors.red, fontWeight: FontWeight.w700)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmRemove(BuildContext context, Patient p) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: WiColors.card,
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Remove this device?'),
+        content: Text(
+          '${p.deviceName} will be removed from your account and stop showing '
+          'here. You can have it re-assigned later by your administrator.',
+          style: WiText.body.copyWith(fontSize: 13, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(dialogContext).pop();
+              final error = await app.removeDevice(p.deviceId);
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text(error ?? 'Device removed.'),
+              ));
+            },
+            child: const Text('Remove',
+                style: TextStyle(color: WiColors.red)),
           ),
         ],
       ),

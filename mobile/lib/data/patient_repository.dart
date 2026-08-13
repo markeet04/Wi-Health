@@ -34,6 +34,7 @@ class PatientRepository {
     _appState.dismissAlertHandler = _dismissAlert;
     _appState.claimDeviceHandler = _claimDevice;
     _appState.requestDeviceHandler = _requestDevice;
+    _appState.removeDeviceHandler = _removeDevice;
 
     _appState.dismissPairingCodeHandler = _dismissPairingCode;
 
@@ -93,6 +94,7 @@ class PatientRepository {
     _appState.dismissAlertHandler = null;
     _appState.claimDeviceHandler = null;
     _appState.requestDeviceHandler = null;
+    _appState.removeDeviceHandler = null;
     _appState.dismissPairingCodeHandler = null;
     _disposed = true;
   }
@@ -347,6 +349,23 @@ class PatientRepository {
   /// the security rule that only lets a user set ownerUid to their own uid when
   /// it was empty — is what stops one user from claiming another's device.
   /// Returns null on success, or a user-facing error message.
+  /// Remove (unlink) a device from this account: drop it from the user's device
+  /// list and clear the device's ownerUid so an admin can reassign it. The
+  /// device record itself stays in the fleet. Returns null on success.
+  Future<String?> _removeDevice(String deviceId) async {
+    final id = deviceId.trim();
+    if (id.isEmpty) return 'Invalid device.';
+    try {
+      // Clear ownership first (rules allow the current owner to set it empty),
+      // then remove it from our own device list.
+      await _db.ref('devices/$id/meta/ownerUid').set('');
+      await _db.ref('users/${_user.uid}/devices/$id').remove();
+    } catch (_) {
+      return 'Could not remove the device. Please try again.';
+    }
+    return null;
+  }
+
   Future<String?> _claimDevice({
     required String deviceId,
     required String patientName,
@@ -715,7 +734,7 @@ class PatientRepository {
       final patientName = _deviceStates[session.patientId]?.meta['patientName']?.toString() ?? session.patientId;
       events.add(_TimedActivity(
         ActivityEvent(
-          title: 'Night session ended',
+          title: 'Monitoring session ended',
           subtitle: '$patientName · ${session.duration} · avg ${session.avgBpm.toStringAsFixed(1)} bpm',
           time: session.time,
           kind: 'session',

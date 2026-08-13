@@ -4,6 +4,7 @@ import {
   assignAdminDevice,
   createDevicePairingCode,
   declineAdminDeviceRequest,
+  deleteAdminDevice,
   fetchAdminDevices,
   unassignAdminDevice,
 } from '../../../services/adminApi'
@@ -28,6 +29,7 @@ function AdminDevicesPage({ accessToken }) {
   const [modalMode, setModalMode] = useState('assign')
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [pendingUnassign, setPendingUnassign] = useState(null)
+  const [pendingDelete, setPendingDelete] = useState(null)
   const [statusMessage, setStatusMessage] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   // Pairing-code modal: { deviceId, code, expiresAt } once generated.
@@ -217,6 +219,21 @@ function AdminDevicesPage({ accessToken }) {
     }
   }
 
+  const confirmDelete = async () => {
+    if (!accessToken || !pendingDelete) return
+
+    setIsSubmitting(true)
+    try {
+      await deleteAdminDevice(accessToken, pendingDelete.id)
+      setPendingDelete(null)
+      await loadDevices()
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : 'Unable to delete device.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   return (
     <section className="page-grid admin-devices-page page-fade">
       {requests.length > 0 ? (
@@ -311,6 +328,7 @@ function AdminDevicesPage({ accessToken }) {
                       {device.ownerUid ? (
                         <button type="button" className="delete-btn" onClick={() => setPendingUnassign(device)}>Unassign</button>
                       ) : null}
+                      <button type="button" className="delete-btn" onClick={() => setPendingDelete(device)}>Delete</button>
                     </div>
                   </td>
                 </tr>
@@ -343,6 +361,28 @@ function AdminDevicesPage({ accessToken }) {
                 Copy Code
               </button>
               <button type="button" className="ghost-btn" onClick={() => setPairing(null)}>Done</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {pendingDelete ? (
+        <div className="modal-backdrop" onClick={() => setPendingDelete(null)}>
+          <div className="modal-card confirmation-card" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-card__head">
+              <h3>Delete device</h3>
+              <button type="button" className="ghost-btn" onClick={() => setPendingDelete(null)}>Close</button>
+            </div>
+            <p className="hint-text">
+              Permanently remove <strong>{pendingDelete.id}</strong> from the fleet
+              (its assignment, live data, alerts and history). This cannot be undone.
+              A device that is still powered on may reappear on its next write.
+            </p>
+            <div className="form-actions">
+              <button type="button" className="delete-btn" disabled={isSubmitting} onClick={confirmDelete}>
+                {isSubmitting ? 'Deleting...' : 'Delete Device'}
+              </button>
+              <button type="button" className="ghost-btn" onClick={() => setPendingDelete(null)}>Cancel</button>
             </div>
           </div>
         </div>
