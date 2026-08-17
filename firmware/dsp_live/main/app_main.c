@@ -222,21 +222,24 @@ static void channel_scan_task(void *arg)
  * it unlocks and re-launches the scan so both boards re-find the (moved) channel
  * — no physical reset needed. Plain FreeRTOS polling task (yields every second);
  * unrelated to the IDF task-WDT, which stays disabled. */
-#define CSI_STALL_TIMEOUT_MS  15000
+/* CSI legitimately pauses for many seconds (no one in the beam, motion-gated
+ * windows), so the stall timeout must be well above a normal quiet stretch —
+ * otherwise the watchdog re-scans a perfectly good link and, by sweeping the
+ * radio off-channel, causes the very stall it's trying to fix. Only a long,
+ * genuine silence means the AP actually moved. */
+#define CSI_STALL_TIMEOUT_MS  45000
 static void channel_watchdog_task(void *arg)
 {
     (void)arg;
     int last_count = 0;
     int64_t last_progress = esp_timer_get_time();
-    int tick = 0;
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));
 
-        /* While locked, periodically re-announce our channel so a TX that
-         * drifted (AP roam) has a beacon to re-sync to. Cheap, every ~4s. */
-        if (s_channel_locked && (++tick % 4) == 0) {
-            rebroadcast_channel(s_active_channel);
-        }
+        /* NOTE: the RX does NOT re-broadcast its channel here. Transmitting
+         * interrupts promiscuous CSI reception, and the uploader already beacons
+         * the channel continuously — an extra RX beacon only sabotaged our own
+         * capture and desynced us from the TX. */
 
         /* Only meaningful once we've locked to a discovered channel and the
          * scan has settled (not during initial sweep / default fallback). */
@@ -253,7 +256,8 @@ static void channel_watchdog_task(void *arg)
         }
 
         if ((esp_timer_get_time() - last_progress) > (int64_t)CSI_STALL_TIMEOUT_MS * 1000) {
-            ESP_LOGW(TAG, "channel auto-discovery: CSI stalled — re-scanning (AP channel may have moved)");
+            ESP_LOGW(TAG, "channel auto-discovery: CSI silent >%ds — re-scanning (AP may have moved)",
+                     CSI_STALL_TIMEOUT_MS / 1000);
             s_channel_locked = false;
             s_channel_settled = false;   /* DSP keeps running; scan gates only initial start */
             xTaskCreatePinnedToCore(channel_scan_task, "chan_scan", 3072, NULL, 6, NULL, 0);

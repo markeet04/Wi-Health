@@ -185,7 +185,11 @@ static void channel_scan_task(void *arg)
  * hearing beacons means it's still on the right channel. If the AP roams and the
  * RX moves, the TX stops hearing beacons — after a timeout it re-scans to
  * re-find the (moved) channel. Plain polling task; unrelated to the IDF WDT. */
-#define BEACON_STALL_TIMEOUT_MS  20000
+/* The uploader beacons every ~2 s, but transient AP gaps can drop a few in a
+ * row. Only a long silence means the TX genuinely drifted off-channel — a short
+ * timeout would sweep the radio off a good channel (dropping CSI) on a hiccup.
+ * Kept in step with the RX's stall timeout so the two don't re-scan out of sync. */
+#define BEACON_STALL_TIMEOUT_MS  45000
 static void channel_watchdog_task(void *arg)
 {
     (void)arg;
