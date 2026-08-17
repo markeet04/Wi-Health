@@ -23,5 +23,13 @@ abstract class AuthService {
   /// Sends a password-reset email. Throws [AuthException] on failure.
   Future<void> sendPasswordReset(String email);
 
+  /// Re-sends the account's verification email. The app signs the user back
+  /// out the moment it detects an unverified email (see
+  /// AuthController.login), so this re-authenticates with the given
+  /// credentials to get a valid session just long enough to trigger the
+  /// email, then signs out again. Throws [AuthException] on failure.
+  Future<void> resendVerificationEmail(
+      {required String email, required String password});
+
   Future<void> signOut();
 }

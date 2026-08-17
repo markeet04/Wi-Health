@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../auth/auth_controller.dart';
+import '../../auth/auth_exceptions.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../../widgets/logo.dart';
@@ -38,6 +39,18 @@ class _LoginScreenState extends State<LoginScreen> {
     if (ok && mounted) {
       Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const ShellScreen()));
+    }
+  }
+
+  Future<void> _resendVerification() async {
+    FocusScope.of(context).unfocus();
+    final ok = await authController.resendVerificationEmail(
+        _email.text, _password.text);
+    if (ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Verification email resent — check your inbox.')),
+      );
     }
   }
 
@@ -82,6 +95,23 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 30),
                 if (authController.error != null) ...[
                   _ErrorBanner(message: authController.error!),
+                  if (authController.errorCode ==
+                      AuthErrorCode.emailNotVerified) ...[
+                    const SizedBox(height: 10),
+                    Center(
+                      child: GestureDetector(
+                        onTap:
+                            authController.busy ? null : _resendVerification,
+                        child: const Text(
+                          'Resend verification email',
+                          style: TextStyle(
+                              color: WiColors.primary,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 16),
                 ],
                 SoftTextField(

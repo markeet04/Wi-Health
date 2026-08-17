@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:firebase_database/firebase_database.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 
 import 'auth_exceptions.dart';
 import 'auth_models.dart';
@@ -90,7 +91,53 @@ class FirebaseAuthService implements AuthService {
   }
 
   @override
-  Future<void> signOut() => _auth.signOut();
+  Future<void> resendVerificationEmail(
+      {required String email, required String password}) async {
+    try {
+      final cred = await _auth.signInWithEmailAndPassword(
+          email: email.trim(), password: password);
+      await cred.user?.sendEmailVerification();
+    } on fb.FirebaseAuthException catch (e) {
+      throw _mapError(e);
+    } finally {
+      // Never leave a live session behind just from a resend attempt — the
+      // account is still unverified, so the normal login gate still applies.
+      await _signOutAndClearFcm();
+    }
+  }
+
+  @override
+  Future<void> signOut() => _signOutAndClearFcm();
+
+  /// Signing out must stop push notifications too: FCM tokens aren't tied to
+  /// "is the app currently logged in" on their own, so a token left behind in
+  /// /users/$uid/fcmTokens keeps receiving that account's pushes (alerts,
+  /// pairing codes, ...) indefinitely. Remove this device's token from the
+  /// account it was registered under, then delete it locally so Firebase
+  /// issues a fresh one — a defence-in-depth in case the RTDB write above
+  /// fails (offline, rules hiccup, etc.).
+  Future<void> _signOutAndClearFcm() async {
+    final uid = _auth.currentUser?.uid;
+    if (uid != null) {
+      try {
+        final token = await FirebaseMessaging.instance.getToken();
+        if (token != null) {
+          await _db.ref('users/$uid/fcmTokens/$token').remove();
+        }
+      } catch (_) {
+        // Best-effort — a messaging hiccup must never block sign-out.
+      }
+    }
+
+    try {
+      await FirebaseMessaging.instance.deleteToken();
+    } catch (_) {
+      // Best-effort here too; worst case the old token lingers until it goes
+      // stale and the backend's dead-token pruning removes it.
+    }
+
+    await _auth.signOut();
+  }
 
   /// Creates the /users/$uid subtree. Written child-by-child on purpose:
   /// the rules grant self-writes on profile/role/settings individually,

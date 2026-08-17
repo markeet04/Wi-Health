@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import '../../auth/auth_controller.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
-import '../shell.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -34,6 +33,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
   Future<void> _signup() async {
     FocusScope.of(context).unfocus();
+    final email = _email.text.trim();
     final ok = await authController.signup(
       name: _name.text,
       email: _email.text,
@@ -41,10 +41,24 @@ class _SignupScreenState extends State<SignupScreen> {
       confirmPassword: _confirm.text,
     );
     if (ok && mounted) {
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const ShellScreen()),
-        (route) => false,
+      // Account created but unverified — login() is the checkpoint that
+      // enforces emailVerified, so send them back to sign in instead of
+      // straight into the app.
+      await showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Check your email'),
+          content: Text(
+              'We sent a verification link to $email. Verify your email, then sign in.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
       );
+      if (mounted) Navigator.of(context).pop();
     }
   }
 

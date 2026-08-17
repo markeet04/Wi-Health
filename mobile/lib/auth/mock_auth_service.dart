@@ -106,6 +106,15 @@ class MockAuthService implements AuthService {
   }
 
   @override
+  Future<void> resendVerificationEmail(
+      {required String email, required String password}) async {
+    await Future<void>.delayed(latency);
+    // Mock accounts are provisioned pre-verified (see _provision — there's no
+    // real inbox to click a link in), so this path is only reachable if a
+    // caller explicitly forces the check; nothing to actually send here.
+  }
+
+  @override
   Future<void> signOut() async {
     await Future<void>.delayed(const Duration(milliseconds: 120));
     _session = null;
@@ -117,6 +126,9 @@ class MockAuthService implements AuthService {
       name: name.isEmpty ? _nameFromEmail(email) : name,
       email: email,
       role: UserRole.appUser,
+      // Mock backend can't send real emails, so demo/local accounts start
+      // verified — the block/resend UX is exercised against real Firebase.
+      emailVerified: true,
     );
     _accounts[email] = _MockAccount(password: password, user: user);
     return user;

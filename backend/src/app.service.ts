@@ -912,7 +912,7 @@ export class AppService implements OnModuleInit {
     const tokensSnapshot = await db.ref(`users/${ownerUid}/fcmTokens`).get()
     const tokens = Object.keys((tokensSnapshot.val() as Record<string, unknown>) ?? {})
     if (tokens.length === 0) return
-    await getMessaging(firebaseApp).sendEachForMulticast({
+    const response = await getMessaging(firebaseApp).sendEachForMulticast({
       tokens,
       notification: {
         title: 'Device ready to set up',
@@ -921,6 +921,19 @@ export class AppService implements OnModuleInit {
       data: { type: 'pairing', deviceId, code },
       android: { priority: 'high' },
     })
+
+    // Same dead-token pruning as sendAlertPush — a token FCM reports as
+    // unregistered (e.g. the owner signed out and the app cleared it) should
+    // never be retried.
+    const deadTokens = response.responses
+      .map((result, index) => (!result.success && this.isDeadFcmTokenError(result.error) ? tokens[index] : null))
+      .filter((token): token is string => Boolean(token))
+
+    if (deadTokens.length > 0) {
+      await Promise.all(
+        deadTokens.map((token) => db.ref(`users/${ownerUid}/fcmTokens/${token}`).remove().catch(() => undefined)),
+      )
+    }
   }
 
   /**
