@@ -18,24 +18,28 @@ class AuthController extends ChangeNotifier {
   AuthUser? _user;
   bool _busy = false;
   String? _error;
+  AuthErrorCode? _errorCode;
 
   AuthUser? get user => _user;
   bool get busy => _busy;
   String? get error => _error;
+  AuthErrorCode? get errorCode => _errorCode;
   bool get isAuthenticated => _user != null;
 
   void clearError() {
-    if (_error == null) return;
+    if (_error == null && _errorCode == null) return;
     _error = null;
+    _errorCode = null;
     notifyListeners();
   }
 
   /// Restores a persisted session (splash calls this). Applies the same
-  /// RBAC gate as login so a stale admin session can't slip through.
+  /// RBAC + email-verification gates as login so a stale/unverified session
+  /// can't slip through.
   Future<bool> restoreSession() async {
     final restored = await _service.restoreSession();
     if (restored == null) return false;
-    if (!restored.role.mayUseMobileApp) {
+    if (!restored.emailVerified || !restored.role.mayUseMobileApp) {
       await _service.signOut();
       return false;
     }
@@ -50,10 +54,15 @@ class AuthController extends ChangeNotifier {
         }
         final user =
             await _service.signIn(email: email, password: password);
+        _requireVerifiedEmail(user);
         _requireMobileAccess(user);
         _user = user;
       });
 
+  /// Creates the account and sends the verification email, but does NOT
+  /// sign the user into the app — login() is the checkpoint that enforces
+  /// emailVerified, so the caller should route back to the login screen
+  /// afterwards rather than straight into the app.
   Future<bool> signup({
     required String name,
     required String email,
@@ -70,7 +79,7 @@ class AuthController extends ChangeNotifier {
         final user = await _service.signUp(
             name: name, email: email, password: password);
         _requireMobileAccess(user);
-        _user = user;
+        await _service.signOut();
       });
 
   Future<bool> sendPasswordReset(String email) => _run(() async {
@@ -78,6 +87,15 @@ class AuthController extends ChangeNotifier {
           throw const AuthException(AuthErrorCode.emptyFields);
         }
         await _service.sendPasswordReset(email);
+      });
+
+  Future<bool> resendVerificationEmail(String email, String password) =>
+      _run(() async {
+        if (email.trim().isEmpty || password.isEmpty) {
+          throw const AuthException(AuthErrorCode.emptyFields);
+        }
+        await _service.resendVerificationEmail(
+            email: email, password: password);
       });
 
   Future<void> logout() async {
@@ -97,18 +115,31 @@ class AuthController extends ChangeNotifier {
     }
   }
 
+  /// Email-verification gate for login. Firebase itself doesn't block
+  /// sign-in for unverified accounts — this is the app-level checkpoint that
+  /// does. Signs back out so an unverified session never lingers.
+  void _requireVerifiedEmail(AuthUser user) {
+    if (!user.emailVerified) {
+      _service.signOut();
+      throw const AuthException(AuthErrorCode.emailNotVerified);
+    }
+  }
+
   Future<bool> _run(Future<void> Function() action) async {
     _busy = true;
     _error = null;
+    _errorCode = null;
     notifyListeners();
     try {
       await action();
       return true;
     } on AuthException catch (e) {
       _error = e.message;
+      _errorCode = e.code;
       return false;
     } catch (_) {
       _error = AuthException.defaultMessageFor(AuthErrorCode.unknown);
+      _errorCode = AuthErrorCode.unknown;
       return false;
     } finally {
       _busy = false;

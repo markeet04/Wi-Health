@@ -10,6 +10,7 @@ enum AuthErrorCode {
   passwordMismatch,
   emptyFields,
   roleNotAllowed,
+  emailNotVerified,
   network,
   unknown,
 }
@@ -35,6 +36,8 @@ class AuthException implements Exception {
         AuthErrorCode.emptyFields => 'Please fill in all the fields.',
         AuthErrorCode.roleNotAllowed =>
           'Admin accounts sign in on the web admin panel, not the mobile app.',
+        AuthErrorCode.emailNotVerified =>
+          'Please verify your email before signing in. Check your inbox for the link, or resend it below.',
         AuthErrorCode.network =>
           'Couldn’t reach the server — check your connection.',
         AuthErrorCode.unknown => 'Something went wrong. Please try again.',
